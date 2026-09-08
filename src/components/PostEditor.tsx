@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { 
   ArrowRight, Save, Send, Sparkles, Eye, Code, Check, 
   AlertCircle, Image as ImageIcon, Tag, Folder, Compass, 
-  HelpCircle, Wand2, Copy, FileText, CheckCircle2, Loader2, ExternalLink
+  HelpCircle, Wand2, Copy, FileText, CheckCircle2, Loader2, ExternalLink, RefreshCw
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import { WPPost, WPCategory, SiteSettings } from '../types';
@@ -47,6 +47,8 @@ export default function PostEditor({
   const [copied, setCopied] = useState(false);
   const [isQuickImageLoading, setIsQuickImageLoading] = useState(false);
   const [quickImageVariations, setQuickImageVariations] = useState<any[]>([]);
+  const [editorImageType, setEditorImageType] = useState<'HERO' | 'ARTICLE' | 'PRODUCT' | 'COMPARISON' | 'TUTORIAL'>('HERO');
+  const [lastGeneratedImageMeta, setLastGeneratedImageMeta] = useState<any | null>(null);
 
   // Quick stats
   const plainText = content.replace(/<[^>]+>/g, ' ').replace(/[#*_`]/g, ' ');
@@ -237,7 +239,7 @@ export default function PostEditor({
     }
   };
 
-  const handleQuickGenerateImage = async () => {
+  const handleQuickGenerateImage = async (forceDifferently: boolean = false) => {
     if (!title && !content) {
       setPublishMessage({
         type: 'error',
@@ -254,9 +256,16 @@ export default function PostEditor({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           title,
-          content: content.slice(0, 500),
-          style: 'realistic',
-          aspectRatio: '16:9'
+          content,
+          article: {
+            title,
+            content,
+            category: selectedCategory,
+            keywords: tagsInput.split(/[,،]+/).map((t) => t.trim()).filter(Boolean)
+          },
+          imageType: editorImageType,
+          aspectRatio: '16:9',
+          forceNewStrategy: forceDifferently
         })
       });
       const data = await res.json();
@@ -264,6 +273,7 @@ export default function PostEditor({
 
       if (data.imageUrl) {
         setFeaturedImage(data.imageUrl);
+        setLastGeneratedImageMeta(data);
         if (Array.isArray(data.variations)) {
           setQuickImageVariations(data.variations);
         }
@@ -688,7 +698,7 @@ export default function PostEditor({
                 <div className="flex items-center gap-1">
                   <button
                     type="button"
-                    onClick={handleQuickGenerateImage}
+                    onClick={() => handleQuickGenerateImage(false)}
                     disabled={isQuickImageLoading}
                     className="px-2 py-0.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white rounded-md text-[10px] font-bold flex items-center gap-1 transition-colors cursor-pointer disabled:opacity-50 shadow-2xs"
                     title="تحلیل خودکار محتوا و انتخاب تصویر واقع‌گرایانه مرتبط"
@@ -718,6 +728,33 @@ export default function PostEditor({
                 dir="ltr"
                 className="w-full px-3 py-2 bg-stone-50 rounded-lg border border-stone-300 focus:outline-none text-stone-800 text-xs font-mono"
               />
+              {/* Image Type Selector */}
+              <div className="space-y-1">
+                <span className="text-[10px] text-stone-500 font-bold block">سیستم تصویر هوشمند:</span>
+                <div className="grid grid-cols-5 gap-1">
+                  {[
+                    { id: 'HERO', label: 'Hero' },
+                    { id: 'ARTICLE', label: 'محتوا' },
+                    { id: 'PRODUCT', label: 'محصول' },
+                    { id: 'COMPARISON', label: 'مقایسه' },
+                    { id: 'TUTORIAL', label: 'آموزش' }
+                  ].map((sys) => (
+                    <button
+                      key={sys.id}
+                      type="button"
+                      onClick={() => setEditorImageType(sys.id as any)}
+                      className={`py-1 text-[10px] rounded font-bold cursor-pointer transition-colors text-center ${
+                        editorImageType === sys.id
+                          ? 'bg-emerald-600 text-white'
+                          : 'bg-stone-100 text-stone-600 hover:bg-stone-200'
+                      }`}
+                    >
+                      {sys.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
               {featuredImage ? (
                 <div className="space-y-2">
                   <div className="rounded-lg overflow-hidden border border-stone-200 h-36 bg-stone-100 relative group">
@@ -730,12 +767,22 @@ export default function PostEditor({
                     <div className="absolute inset-0 bg-stone-900/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
                       <button
                         type="button"
-                        onClick={handleQuickGenerateImage}
+                        onClick={() => handleQuickGenerateImage(false)}
                         disabled={isQuickImageLoading}
                         className="px-2.5 py-1 bg-white text-stone-900 rounded-lg text-xs font-bold flex items-center gap-1 shadow-sm hover:bg-stone-100 cursor-pointer"
                       >
                         <Sparkles className="w-3.5 h-3.5 text-emerald-600" />
                         <span>تولید مجدد</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleQuickGenerateImage(true)}
+                        disabled={isQuickImageLoading}
+                        className="px-2.5 py-1 bg-amber-500 text-white rounded-lg text-xs font-bold flex items-center gap-1 shadow-sm hover:bg-amber-600 cursor-pointer"
+                        title="تغییر اجباری استراتژی کادربندی، زاویه نور و زاویه دید"
+                      >
+                        <RefreshCw className="w-3.5 h-3.5" />
+                        <span>زاویه متفاوت</span>
                       </button>
                       <button
                         type="button"
@@ -746,6 +793,33 @@ export default function PostEditor({
                       </button>
                     </div>
                   </div>
+
+                  {/* Metadata Banner if available */}
+                  {lastGeneratedImageMeta && (
+                    <div className="bg-stone-50 p-2 rounded-lg border border-stone-200 text-[11px] space-y-1">
+                      <div className="flex items-center justify-between">
+                        <span
+                          className={`font-bold px-1.5 py-0.2 rounded text-[10px] ${
+                            lastGeneratedImageMeta.source === 'gemini_ai'
+                              ? 'bg-emerald-100 text-emerald-800'
+                              : 'bg-amber-100 text-amber-800'
+                          }`}
+                        >
+                          {lastGeneratedImageMeta.source === 'gemini_ai' ? 'Gemini AI' : 'آرشیو مستند (Fallback)'}
+                        </span>
+                        {lastGeneratedImageMeta.strategy && (
+                          <span className="text-stone-500 truncate text-[10px]">
+                            {lastGeneratedImageMeta.strategy.name}
+                          </span>
+                        )}
+                      </div>
+                      {lastGeneratedImageMeta.visualConcept && (
+                        <p className="text-stone-600 text-[10px] line-clamp-2">
+                          <strong>کانسپت: </strong>{lastGeneratedImageMeta.visualConcept.whyItMatters}
+                        </p>
+                      )}
+                    </div>
+                  )}
 
                   {/* Quick variations switcher if available */}
                   {quickImageVariations.length > 1 && (
@@ -785,19 +859,19 @@ export default function PostEditor({
                 </div>
               ) : (
                 <div 
-                  onClick={handleQuickGenerateImage}
+                  onClick={() => handleQuickGenerateImage(false)}
                   className="h-28 border-2 border-dashed border-stone-200 hover:border-emerald-400 rounded-lg flex flex-col items-center justify-center text-stone-400 hover:text-emerald-700 text-xs cursor-pointer transition-colors bg-stone-50/50 hover:bg-emerald-50/30 p-3 text-center"
                 >
                   {isQuickImageLoading ? (
                     <div className="flex flex-col items-center gap-1.5">
                       <Loader2 className="w-6 h-6 animate-spin text-emerald-600" />
-                      <span className="font-semibold text-stone-700">در حال جستجو و تولید تصویر هوشمند...</span>
+                      <span className="font-semibold text-stone-700">در حال تحلیل کانسپت و تولید تصویر هوشمند...</span>
                     </div>
                   ) : (
                     <>
                       <Sparkles className="w-6 h-6 mb-1 text-emerald-600" />
                       <span className="font-bold text-stone-700">کلیک برای تولید هوشمند تصویر شاخص</span>
-                      <span className="text-[10px] text-stone-500 mt-0.5">مطابق با موضوع مقاله، کاملاً واقع‌گرایانه</span>
+                      <span className="text-[10px] text-stone-500 mt-0.5">سیستم {editorImageType} با عکاسی واقع‌گرایانه و بدون کلیشه</span>
                     </>
                   )}
                 </div>

@@ -1,0 +1,146 @@
+[
+  {
+    "id": "img-1788894145705-t2ukj",
+    "siteId": "site-madanicamp",
+    "type": "HERO",
+    "version": 1,
+    "source": "unsplash_fallback",
+    "prompt": "Authentic editorial outdoor documentary photograph showing A high-end 4-season geodesic mountaineering tent anchored on an exposed, wind-scoured Alborz ridge. The frame highlights the taut, silicone-impregnated ripstop fly with fine spindrift trailing off the aerodynamic windward face, showcasing interlocking exterior pole sleeves, reinforced load-bearing apex junctions, and triangulated guy lines tensioned to buried deadman anchors in frozen scree.. Primary subject: Four-season expedition geodesic tent engineered for alpine wind and heavy snow loads, framed with commanding focus. Subject placement: Dynamic diagonal lines from foreground rock to background ridge. Secondary surrounding elements: High-tensile Dyneema guy lines anchored with snow stakes and granite counterweights, Reinforced storm-skirt weighed down with flat fractured stones, Dramatic drop-off of an Alborz alpine ridgeline into a sea of clouds below. Perspective & framing: Ground-level low angle perspective. Camera angle: Ground level, looking slightly upward at 15 degrees. Viewpoint: Low angle creating scale and stability. Lighting: Filtered high-altitude daylight, crisp rock textures and deep shadows. Atmosphere: Natural mountain daylight under plausible overcast or clear high-altitude skies, muted realistic colors, physically plausible shadows without neon or oversaturated color grading. Technical gear accuracy: Display authentic mechanical construction—External multi-crossover aluminum pole architecture (DAC Featherlite NSL) providing geodesic rigidity, Silicone/PU-coated high-tenacity ripstop nylon fly with welded bartack reinforcements at guyout points, Dual-opposing zippered storm vents propped open with stiffeners to illustrate condensation management in sub-zero air, Evenly distributed perimeter tensioning system with line locks at 45-degree guyout angles. Realistic fabric tension, natural material wrinkles, correct aluminum pole geometry, and physical contact with the ground. Human depiction: No visible human faces; focus strictly on the equipment and terrain. Strict constraints: Absolutely no text, no watermarks, no Persian calligraphy, no English labels, no faux logos, no UI overlays, no CGI render aesthetics, no fantasy landscape, no oversaturated teal-and-orange filters, no floating objects.",
+    "visualConcept": {
+      "whatIsShown": "A high-end 4-season geodesic mountaineering tent anchored on an exposed, wind-scoured Alborz ridge. The frame highlights the taut, silicone-impregnated ripstop fly with fine spindrift trailing off the aerodynamic windward face, showcasing interlocking exterior pole sleeves, reinforced load-bearing apex junctions, and triangulated guy lines tensioned to buried deadman anchors in frozen scree.",
+      "whyItMatters": "Readers immediately grasp the structural reality separating true 4-season shelters from 3-season tents: aerodynamic low-profile geometry, geodesic multi-pole crossover points that resist snow loading, and critical anchor physics under gale-force conditions, building instant technical trust.",
+      "primarySubject": "Four-season expedition geodesic tent engineered for alpine wind and heavy snow loads",
+      "secondarySubjects": [
+        "High-tensile Dyneema guy lines anchored with snow stakes and granite counterweights",
+        "Reinforced storm-skirt weighed down with flat fractured stones",
+        "Dramatic drop-off of an Alborz alpine ridgeline into a sea of clouds below"
+      ],
+      "action": "Static structural rigidity under live wind shear, with the taut fabric slightly deflecting without pole collapse or flapping slack",
+      "environment": "Rugged, windswept 4,000m Alborz crest with sharp dark granite outcrops, frozen scree, and wind-carved hardpack snow",
+      "technicalDetails": [
+        "External multi-crossover aluminum pole architecture (DAC Featherlite NSL) providing geodesic rigidity",
+        "Silicone/PU-coated high-tenacity ripstop nylon fly with welded bartack reinforcements at guyout points",
+        "Dual-opposing zippered storm vents propped open with stiffeners to illustrate condensation management in sub-zero air",
+        "Evenly distributed perimeter tensioning system with line locks at 45-degree guyout angles"
+      ],
+      "compositionIdea": "Low-angle three-quarter hero shot at 35mm focal length, placing the viewer nearly ground-level to emphasize the tent's aerodynamic profile and structural intersections against the dramatic mountain relief."
+    },
+    "visualBrief": {
+      "strategyId": "hero_ground_perspective",
+      "strategyName": "زاویه دید مماس بر زمین و صخره‌های شیب‌دار کوهستان",
+      "cameraAngle": "Ground level, looking slightly upward at 15 degrees",
+      "lighting": "Filtered high-altitude daylight, crisp rock textures and deep shadows",
+      "perspective": "Low angle creating scale and stability",
+      "whyItMatters": "Readers immediately grasp the structural reality separating true 4-season shelters from 3-season tents: aerodynamic low-profile geometry, geodesic multi-pole crossover points that resist snow loading, and critical anchor physics under gale-force conditions, building instant technical trust."
+    },
+    "strategy": {
+      "id": "hero_ground_perspective",
+      "name": "زاویه دید مماس بر زمین و صخره‌های شیب‌دار کوهستان",
+      "category": "HERO",
+      "shotType": "Ground-level low angle perspective",
+      "cameraAngle": "Ground level, looking slightly upward at 15 degrees",
+      "lighting": "Filtered high-altitude daylight, crisp rock textures and deep shadows",
+      "perspective": "Low angle creating scale and stability",
+      "gearEmphasis": "Stakes, guy-line tensioners, and rugged ground contact points",
+      "compositionPattern": "Dynamic diagonal lines from foreground rock to background ridge"
+    },
+    "fingerprint": {
+      "subject": "Four-season expedition geodesic tent engineered for alpine wind and heavy snow loads",
+      "cameraAngle": "Low-angle three-quarter hero shot at 35mm focal length, placing the viewer nearly ground-level to emphasize the tent's aerodynamic profile and structural intersections against the dramatic mountain relief.",
+      "shotType": "HERO",
+      "environment": "Rugged, windswept 4,000m Alborz crest with sharp dark granite outcrops, frozen scree, and wind-carved hardpack snow",
+      "timeOfDay": "Morning / Overcast",
+      "weather": "Alpine authentic",
+      "dominantObjects": [
+        "Four-season expedition geodesic tent engineered for alpine wind and heavy snow loads",
+        "High-tensile Dyneema guy lines anchored with snow stakes and granite counterweights",
+        "Reinforced storm-skirt weighed down with flat fractured stones",
+        "Dramatic drop-off of an Alborz alpine ridgeline into a sea of clouds below"
+      ],
+      "humanPresence": false,
+      "composition": "Low-angle three-quarter hero shot at 35mm focal length, placing the viewer nearly ground-level to emphasize the tent's aerodynamic profile and structural intersections against the dramatic mountain relief.",
+      "visualHierarchy": "Four-season expedition geodesic tent engineered for alpine wind and heavy snow loads dominates frame, framed by natural alpine elements"
+    },
+    "hash": "e04abc4df4702dd3307716fd6ef90128ce1cf7ca656195d6a43df1f70df27060",
+    "perceptualHash": "bceddecaf6c942da",
+    "quality": {
+      "relevance": 9,
+      "realism": 9,
+      "composition": 9,
+      "subjectClarity": 9,
+      "equipmentAccuracy": 9,
+      "humanAnatomy": 9,
+      "technicalAccuracy": 9,
+      "visualNovelty": 9,
+      "editorialQuality": 9,
+      "overall": 9,
+      "problems": [],
+      "shouldRegenerate": false
+    },
+    "noveltyScore": 88,
+    "status": "active",
+    "url": "https://images.unsplash.com/photo-1510312305653-8ed496efae75?auto=format&fit=crop&w=1600&q=85",
+    "aspectRatio": "16:9",
+    "createdAt": "2026-09-08T19:02:25.705Z",
+    "persianCaption": "A high-end 4-season geodesic mountaineering tent anchored on an exposed, wind-scoured Alborz ridge. The frame highlights the taut, silicone-impregnated ripstop fly with fine spindrift trailing off the aerodynamic windward face, showcasing interlocking exterior pole sleeves, reinforced load-bearing apex junctions, and triangulated guy lines tensioned to buried deadman anchors in frozen scree. (Readers immediately grasp the structural reality separating true 4-season shelters from 3-season tents: aerodynamic low-profile geometry, geodesic multi-pole crossover points that resist snow loading, and critical anchor physics under gale-force conditions, building instant technical trust.)",
+    "persianTitle": "Four-season expedition geodesic tent engineered for alpine wind and heavy snow loads در زاویه دید مماس بر زمین و صخره‌های شیب‌دار کوهستان",
+    "isAiGenerated": false,
+    "generationError": "{\"error\":{\"code\":429,\"message\":\"You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google.dev/gemini-api/docs/rate-limits. To monitor your current usage, head to: https://ai.dev/rate-limit. \\n* Quota exceeded for metric: generativelanguage.googleapis.com/generate_content_free_tier_requests, limit: 0, model: gemini-3.1-flash-lite-image\\n* Quota exceeded for metric: generativelanguage.googleapis.com/generate_content_free_tier_requests, limit: 0, model: gemini-3.1-flash-lite-image\\n* Quota exceeded for metric: generativelanguage.googleapis.com/generate_content_free_tier_input_token_count, limit: 0, model: gemini-3.1-flash-lite-image\\nPlease retry in 34.318571123s.\",\"status\":\"RESOURCE_EXHAUSTED\",\"details\":[{\"@type\":\"type.googleapis.com/google.rpc.Help\",\"links\":[{\"description\":\"Learn more about Gemini API quotas\",\"url\":\"https://ai.google.dev/gemini-api/docs/rate-limits\"}]},{\"@type\":\"type.googleapis.com/google.rpc.QuotaFailure\",\"violations\":[{\"quotaMetric\":\"generativelanguage.googleapis.com/generate_content_free_tier_requests\",\"quotaId\":\"GenerateRequestsPerDayPerProjectPerModel-FreeTier\",\"quotaDimensions\":{\"location\":\"global\",\"model\":\"gemini-3.1-flash-lite-image\"}},{\"quotaMetric\":\"generativelanguage.googleapis.com/generate_content_free_tier_requests\",\"quotaId\":\"GenerateRequestsPerMinutePerProjectPerModel-FreeTier\",\"quotaDimensions\":{\"location\":\"global\",\"model\":\"gemini-3.1-flash-lite-image\"}},{\"quotaMetric\":\"generativelanguage.googleapis.com/generate_content_free_tier_input_token_count\",\"quotaId\":\"GenerateContentInputTokensPerModelPerMinute-FreeTier\",\"quotaDimensions\":{\"location\":\"global\",\"model\":\"gemini-3.1-flash-lite-image\"}}]},{\"@type\":\"type.googleapis.com/google.rpc.RetryInfo\",\"retryDelay\":\"34s\"}]}}"
+  },
+  {
+    "imageId": "img-1788893428400-nuzvk",
+    "siteId": "site-madanicamp",
+    "imageType": "HERO",
+    "prompt": "A National Geographic style ultra-realistic 4K photograph. Subject: Professional outdoor gear for راهنمای خرید کیسه خواب کوهنوردی برای فصول سرد؛ تجربه گرمای ایمن در ارتفاعات - مدنی کمپ. Perspective: Low angle wide shot, Rule of thirds, wide expansive panorama, leading lines. Lighting: Golden hour warm alpine light, soft natural reflections, no harsh digital glare. Setting: Rugged alpine peaks, authentic wilderness, high altitude flora. Gear authenticity: high detailed fabrics, real stitching, authentic rugged texture. Shot on Sony A7R V with 35mm f/1.8 lens. Photorealistic, crisp textures, natural color grading.  ",
+    "visualFingerprint": "cfe688203f770b14",
+    "perceptualHash": "cdeec6e71c868d3a",
+    "semanticDescription": "چادر ۴ فصل در خط‌الرأس کوهستانی در نور طلایی غروب",
+    "noveltyScore": 94,
+    "quality": {
+      "relevance": 9,
+      "realism": 9,
+      "composition": 9,
+      "equipmentAccuracy": 9,
+      "anatomy": 9,
+      "novelty": 9,
+      "overall": 9,
+      "problems": [],
+      "shouldRegenerate": false
+    },
+    "generationVersion": 1,
+    "createdAt": "2026-09-08T18:50:28.400Z",
+    "url": "https://images.unsplash.com/photo-1510312305653-8ed496efae75?auto=format&fit=crop&w=1600&q=85",
+    "aspectRatio": "16:9",
+    "status": "active",
+    "perspective": "نمای سینمایی پانورامیک (Hero Panoramic)",
+    "isAiGenerated": false
+  },
+  {
+    "imageId": "img-1788892924964-en2l7",
+    "siteId": "site-madanicamp",
+    "imageType": "HERO",
+    "prompt": "A National Geographic style ultra-realistic 4K photograph. Subject: Professional outdoor gear for [object Object] - مدنی کمپ. Perspective: Low angle wide shot, Rule of thirds, wide expansive panorama, leading lines. Lighting: Golden hour warm alpine light, soft natural reflections, no harsh digital glare. Setting: Rugged alpine peaks, authentic wilderness, high altitude flora. Gear authenticity: high detailed fabrics, real stitching, authentic rugged texture. Shot on Sony A7R V with 35mm f/1.8 lens. Photorealistic, crisp textures, natural color grading.  ",
+    "visualFingerprint": "5c657fd9a89f2ac8",
+    "perceptualHash": "4643f4792255ff3f",
+    "semanticDescription": "قله‌های برفی و کمپینگ زیر کهکشان راه شیری",
+    "noveltyScore": 98,
+    "quality": {
+      "relevance": 9,
+      "realism": 9,
+      "composition": 9,
+      "equipmentAccuracy": 9,
+      "anatomy": 9,
+      "novelty": 10,
+      "overall": 9,
+      "problems": [],
+      "shouldRegenerate": false
+    },
+    "generationVersion": 1,
+    "createdAt": "2026-09-08T18:42:04.964Z",
+    "url": "https://images.unsplash.com/photo-1478131143081-80f7f84ca84d?auto=format&fit=crop&w=1600&q=85",
+    "aspectRatio": "16:9",
+    "status": "active",
+    "perspective": "اتمسفر شب‌مانی حماسی (Epic Night Sky)",
+    "isAiGenerated": false
+  }
+]

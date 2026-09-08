@@ -1,6 +1,5 @@
 import express from 'express';
 import path from 'path';
-import { fileURLToPath } from 'url';
 import { createServer as createViteServer } from 'vite';
 import { GoogleGenAI } from '@google/genai';
 import dotenv from 'dotenv';
@@ -8,13 +7,10 @@ import { db, DEFAULT_SITE_ID } from './server/db.js';
 import { discoverKeywordOpportunities, analyzeCompetitors, calculatePriorityScore } from './server/seoEngine.js';
 import { checkDuplication } from './server/duplicationGuard.js';
 import { generateArticleWithDifferenceEngine } from './server/articleEngine.js';
-import { generateVisualAsset } from './server/visualEngine.js';
+import { generateVisualAsset, generateMasterVisualAsset, generateArticleImagePlan } from './server/imageEngine.js';
 import { analyzeSiteIntelligence } from './server/siteIntelligence.js';
 
 dotenv.config();
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
 
 const app = express();
 const PORT = 3000;
@@ -1095,155 +1091,67 @@ const OUTDOOR_VISUAL_LIBRARY: Record<string, OutdoorVisualPreset[]> = {
 };
 
 app.post('/api/ai/generate-image', async (req, res) => {
-  const { prompt, title, content, style = 'realistic', aspectRatio = '16:9' } = req.body;
+  try {
+    const {
+      prompt,
+      title,
+      content,
+      article,
+      imageType = 'HERO',
+      section,
+      aspectRatio = '16:9',
+      userFeedback,
+      productReferenceImage,
+      previousGenerations,
+      forceNewStrategy,
+      siteId
+    } = req.body;
 
-  if (!prompt && !title) {
-    return res.status(400).json({ error: 'عنوان یا توضیحات تصویر الزامی است.' });
-  }
-
-  const ai = getAI();
-  const searchContext = `${title || ''} ${prompt || ''} ${content?.slice(0, 300) || ''}`;
-
-  // 1. Intelligent AI Semantic Scene Analysis using Gemini
-  let analyzedCategory = 'mountain_landscape';
-  let persianCaption = 'تصویر باکیفیت و واقعی از تجهیزات و طبیعت‌گردی مدنی کمپ';
-  let detailedPrompt = `A National Geographic style realistic outdoor photograph of professional camping gear in authentic mountain landscape. Shot on Sony A7R V with 35mm f/1.8 lens at golden hour, sharp focus, natural colors, 4k ultra-detailed photorealistic.`;
-  let promptSuggestions: string[] = [
-    'نمای نزدیک چادر دوپوش در غروب آفتاب با قله‌های برفی',
-    'چیدمان کوله پشتی و تجهیزات کمپینگ روی چمنزار آلپی',
-    'کفش کوهنوردی ضدآب روی تخته‌سنگ‌های ناهموار قله'
-  ];
-
-  if (ai) {
-    try {
-      const sceneBriefPrompt = `شما کارگردان هنری و متخصص عکاسی فضای باز برای وبلاگ «مدنی کمپ» (madanicamp.com) هستید.
-اطلاعات زیر درباره مقاله را تحلیل کنید:
-عنوان مقاله: "${title || ''}"
-ایده یا پرامپت کاربر: "${prompt || ''}"
-خلاصه محتوا: "${content?.slice(0, 400) || ''}"
-سبک مدنظر: "${style}"
-
-دقیق‌ترین دسته‌بندی موضوعی را از بین این ۸ گزینه مشخص کنید:
-"tent" (چادر، تیرک، زیرانداز چادر، شب‌مانی)
-"sleeping_bag" (کیسه خواب، زیرانداز بادشونده، بالش، دمای کامفورت)
-"hiking_boots" (کفش، پوتین کوهنوردی، کتونی ترکینگ، گورتکس، ویبرام)
-"backpack" (کوله پشتی، چیدمان بار، ارگونومی، تسمه‌ها)
-"camp_stove" (سرشعله، کپسول گاز، ظروف پخت و پز، قهوه کمپ)
-"survival_tools" (کیت بقا، قطب‌نما، چاقو، چراغ پیشانی، کمک‌های اولیه)
-"outdoor_clothing" (کاپشن، پلار، گورتکس، دستکش، عینک آفتابی)
-"mountain_landscape" (طبیعت، قله، دریاچه، مسیرهای کوهستان، ابرها)
-
-خروجی باید صرفاً یک آبجکت JSON معتبر و بدون توضیح اضافی باشد:
-{
-  "gearCategory": "tent | sleeping_bag | hiking_boots | backpack | camp_stove | survival_tools | outdoor_clothing | mountain_landscape",
-  "persianCaption": "توضیح صحنه به فارسی جذاب و کوتاه در ۱ جمله برای کپشن تصویر",
-  "detailedPrompt": "An ultra-realistic, authentic outdoor photography prompt in English detailing gear, lighting, lens (Sony A7R V, 35mm f/1.8, golden hour, photorealistic, National Geographic style, crisp textures, natural mountain backdrop, no CGI, no cartoon)",
-  "promptSuggestions": [
-    "ایده پرامپت پیشنهادی ۱ به فارسی",
-    "ایده پرامپت پیشنهادی ۲ به فارسی",
-    "ایده پرامپت پیشنهادی ۳ به فارسی"
-  ]
-}`;
-
-      const briefText = await callGemini(sceneBriefPrompt, { responseMimeType: 'application/json' });
-      const parsedBrief = extractJsonFromText(briefText);
-      if (parsedBrief && parsedBrief.gearCategory) {
-        if (OUTDOOR_VISUAL_LIBRARY[parsedBrief.gearCategory]) {
-          analyzedCategory = parsedBrief.gearCategory;
-        }
-        if (parsedBrief.persianCaption) persianCaption = parsedBrief.persianCaption;
-        if (parsedBrief.detailedPrompt) detailedPrompt = parsedBrief.detailedPrompt;
-        if (Array.isArray(parsedBrief.promptSuggestions) && parsedBrief.promptSuggestions.length > 0) {
-          promptSuggestions = parsedBrief.promptSuggestions;
-        }
-      }
-    } catch (err: any) {
-      console.warn('AI Scene Analysis fallback triggered:', err.message);
-      // Heuristic rule-based categorization as safe fallback
-      const lower = searchContext.toLowerCase();
-      if (/چادر|شب‌مانی|تیرک|بادبند|tent/.test(lower)) analyzedCategory = 'tent';
-      else if (/کیسه خواب|خواب|زیرانداز|سرد|کامفورت|sleeping/.test(lower)) analyzedCategory = 'sleeping_bag';
-      else if (/کفش|پوتین|کتونی|پا|ویبرام|boots|shoes/.test(lower)) analyzedCategory = 'hiking_boots';
-      else if (/کوله|کوله پشتی|حمل|بار|backpack|pack/.test(lower)) analyzedCategory = 'backpack';
-      else if (/سرشعله|پخت|غذا|کپسول|اجاق|stove|cook/.test(lower)) analyzedCategory = 'camp_stove';
-      else if (/بقا|چاقو|قطب نما|کمک‌های اولیه|survival|knife/.test(lower)) analyzedCategory = 'survival_tools';
-      else if (/پوشاک|کاپشن|پلار|لباس|jacket|clothing/.test(lower)) analyzedCategory = 'outdoor_clothing';
+    if (!prompt && !title && (!article || !article.title)) {
+      return res.status(400).json({ error: 'عنوان یا توضیحات تصویر یا اطلاعات ساختاریافته مقاله الزامی است.' });
     }
+
+    const effectiveTitle = title || prompt || article?.title || 'تجهیزات کوهنوردی و کمپینگ';
+    const effectiveArticle = article || {
+      title: effectiveTitle,
+      content: content || '',
+      sections: section ? [{ heading: section, text: '' }] : []
+    };
+
+    const result = await generateMasterVisualAsset({
+      siteId: siteId || DEFAULT_SITE_ID,
+      imageType,
+      article: effectiveArticle,
+      title: effectiveTitle,
+      content,
+      prompt,
+      section,
+      aspectRatio,
+      userFeedback,
+      productReferenceImage,
+      previousGenerations,
+      forceNewStrategy
+    });
+
+    return res.json(result);
+  } catch (err: any) {
+    console.error('Error in /api/ai/generate-image:', err);
+    return res.status(500).json({ error: err.message || 'خطا در تولید دارایی بصری' });
   }
+});
 
-  // 2. Try Direct Image Generation with Gemini Image models if supported
-  let aiGeneratedImage: string | null = null;
-  if (ai) {
-    const candidateModels = ['gemini-3.1-flash-image', 'gemini-3.1-flash-lite-image'];
-    for (const imgModel of candidateModels) {
-      try {
-        const response = await ai.models.generateContent({
-          model: imgModel,
-          contents: {
-            parts: [{ text: detailedPrompt }]
-          },
-          config: {
-            imageConfig: {
-              aspectRatio: (aspectRatio as any) || '16:9'
-            }
-          }
-        });
-
-        const parts = response.candidates?.[0]?.content?.parts || [];
-        for (const part of parts) {
-          if (part.inlineData && part.inlineData.data) {
-            aiGeneratedImage = `data:${part.inlineData.mimeType || 'image/png'};base64,${part.inlineData.data}`;
-            break;
-          }
-        }
-        if (aiGeneratedImage) break;
-      } catch (err: any) {
-        // Continue to next model or library curation
-      }
+app.post('/api/ai/visual-plan', async (req, res) => {
+  try {
+    const { article } = req.body;
+    if (!article || !article.title) {
+      return res.status(400).json({ error: 'اطلاعات ساختاریافته مقاله برای تولید برنامه بصری الزامی است.' });
     }
+    const plan = await generateArticleImagePlan(article);
+    return res.json({ success: true, plan });
+  } catch (err: any) {
+    console.error('Error in /api/ai/visual-plan:', err);
+    return res.status(500).json({ error: err.message || 'خطا در تولید پلن بصری مقاله' });
   }
-
-  // 3. Assemble Curated Realistic Variations from the Verified Outdoor Library
-  const categoryLibrary = OUTDOOR_VISUAL_LIBRARY[analyzedCategory] || OUTDOOR_VISUAL_LIBRARY.mountain_landscape;
-  const variations: any[] = [];
-
-  if (aiGeneratedImage) {
-    variations.push({
-      id: 'ai-custom-1',
-      title: 'خلق اختصاصی با هوش مصنوعی (AI Custom Render)',
-      perspective: 'سنتز مستقیم از پرامپت عکاسی',
-      url: aiGeneratedImage,
-      description: persianCaption,
-      isAiGenerated: true
-    });
-  }
-
-  // Add the authentic high-resolution outdoor photography variations
-  for (const item of categoryLibrary) {
-    variations.push({
-      id: item.id,
-      title: item.title,
-      perspective: item.perspective,
-      url: item.url,
-      description: item.description,
-      isAiGenerated: false
-    });
-  }
-
-  // Choose the best primary image
-  const primaryImage = variations[0].url;
-
-  return res.json({
-    success: true,
-    imageUrl: primaryImage,
-    variations,
-    gearCategory: analyzedCategory,
-    persianCaption,
-    detailedPrompt,
-    promptSuggestions,
-    source: aiGeneratedImage ? 'gemini_ai' : 'curated_outdoor_national_geo',
-    message: 'تصاویر اختصاصی، کاملاً مرتبط و باکیفیت عکاسی حرفه‌ای با موفقیت آماده شدند.'
-  });
 });
 
 function hashString(str: string): number {
@@ -1589,25 +1497,30 @@ app.post('/api/ai/visual-assets/:id/reject', async (req, res) => {
   const { reason, userInstructions, siteId = DEFAULT_SITE_ID } = req.body;
 
   const images = db.getImages();
-  const targetIdx = images.findIndex((img) => img.imageId === imageId);
-  if (targetIdx >= 0) {
-    images[targetIdx].status = 'rejected';
-    images[targetIdx].rejectionReason = reason;
+  const targetIdx = images.findIndex((img) => img.id === imageId || img.imageId === imageId);
+  const targetImg = targetIdx >= 0 ? images[targetIdx] : null;
+
+  if (targetImg) {
+    targetImg.status = 'rejected';
+    targetImg.rejectionReason = reason;
     db.saveImages(images);
   }
 
   try {
     const fresh = await generateVisualAsset({
       siteId,
-      imageType: images[targetIdx]?.imageType || 'HERO',
-      title: images[targetIdx]?.semanticDescription || 'تجهیزات کمپینگ',
-      userInstructions,
+      imageType: targetImg?.type || targetImg?.imageType || 'HERO',
+      title: targetImg?.visualConcept?.primarySubject || targetImg?.semanticDescription || targetImg?.persianTitle || 'تجهیزات کوهنوردی',
+      userFeedback: userInstructions,
       rejectionFeedback: {
         reason: reason || 'کاربر تصویر را رد کرد',
-        previousImageId: imageId
-      }
+        previousImageId: imageId,
+        adjustments: userInstructions
+      },
+      previousGenerations: targetImg?.strategy?.id ? [targetImg.strategy.id] : [],
+      forceNewStrategy: true
     });
-    res.json({ success: true, ...fresh, message: 'تصویر جایگزین با زاویه و ترکیب‌بندی اصلاح‌شده آماده شد.' });
+    res.json({ success: true, ...fresh, message: 'تصویر جایگزین با زاویه و استراتژی بصری نوین آماده شد.' });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }

@@ -1,20 +1,22 @@
 import { useState, useEffect } from 'react';
 import { ImageAsset, ImageType, ManagedSite } from '../types';
 import {
-  Image,
   Sparkles,
   RefreshCw,
-  Sliders,
   CheckCircle2,
   XCircle,
-  Eye,
   Camera,
-  Layers,
   Copy,
   Check,
+  AlertCircle,
+  Upload,
+  Link,
+  Info,
+  ShieldCheck,
   Compass,
-  FileCheck,
-  AlertCircle
+  Layers,
+  ChevronDown,
+  ChevronUp
 } from 'lucide-react';
 
 interface VisualAssetStudioProps {
@@ -23,11 +25,26 @@ interface VisualAssetStudioProps {
 }
 
 const IMAGE_TYPES: { type: ImageType; label: string; desc: string }[] = [
-  { type: 'HERO', label: 'بنر سینمایی شاخص (Hero)', desc: 'کادر باز ۱۶:۹ سینمایی برای تصویر اصلی بالای مقاله' },
-  { type: 'ARTICLE', label: 'تصویر متنی و زمینه (Article)', desc: 'نمایش تجهیزات در شرایط میدانی و داستان‌سرایی محتوا' },
-  { type: 'PRODUCT', label: 'کلوزآپ و بافت محصول (Product)', desc: 'عکاسی ماکرو از دوخت‌ها، زیپ‌ها، زیره ویبرام و متریال ضدآب' },
-  { type: 'COMPARISON', label: 'مقایسه تصویری (Comparison)', desc: 'مقایسه کنار هم دو ابزار، سایز یا دو فناوری رقیب' },
-  { type: 'TUTORIAL', label: 'آموزش گام‌به‌گام (Tutorial)', desc: 'راهنمای تصویری کاربردی نحوه استفاده و تنظیم استاندارد' }
+  { type: 'HERO', label: 'بنر شاخص (Hero)', desc: 'ایده محوری مقاله با کادر باز و ساختار فنی باورپذیر' },
+  { type: 'ARTICLE', label: 'تصویر متنی (Article)', desc: 'ثبت مستند میدانی تجهیزات در شرایط واقعی' },
+  { type: 'PRODUCT', label: 'محور محصول (Product)', desc: 'کلوزآپ و بافت محصول، زیره، زیپ‌ها، متریال فنی' },
+  { type: 'COMPARISON', label: 'مقایسه عینی (Comparison)', desc: 'مقایسه کنار هم دو ابزار یا متریال روی بستر یکسان' },
+  { type: 'TUTORIAL', label: 'آموزش گام‌به‌گام (Tutorial)', desc: 'راهنمای تصویری دست‌ها، چیدمان و تنظیم ابزار' }
+];
+
+const REJECTION_REASONS = [
+  { key: 'too_generic', label: 'خیلی کلیشه‌ای است (Too generic)' },
+  { key: 'not_relevant', label: 'مرتبط با موضوع مقاله نیست (Not relevant)' },
+  { key: 'wrong_equipment', label: 'تجهیزات و متریال نادرست است (Wrong equipment)' },
+  { key: 'wrong_environment', label: 'محیط و لوکیشن اشتباه است (Wrong environment)' },
+  { key: 'bad_composition', label: 'ترکیب‌بندی و زاویه دید نامناسب است (Bad composition)' },
+  { key: 'too_cinematic', label: 'بیش از حد سینمایی و غروب کلیشه‌ای است (Too cinematic)' },
+  { key: 'looks_artificial', label: 'مصنوعی یا رندر شبیه است (Looks artificial)' },
+  { key: 'too_similar', label: 'بیش از حد شبیه به تصویر قبلی است (Too similar to previous)' },
+  { key: 'product_not_visible', label: 'محصول در کادر به اندازه کافی واضح نیست (Product not visible enough)' },
+  { key: 'human_unrealistic', label: 'فیگور یا آناتومی انسان غیرطبیعی است (Human looks unrealistic)' },
+  { key: 'technical_wrong', label: 'جزئیات فنی و ایمنی کوهستان رعایت نشده (Technical details are wrong)' },
+  { key: 'other', label: 'توضیحات اختصاصی دیگر (Other)' }
 ];
 
 export default function VisualAssetStudio({
@@ -40,16 +57,21 @@ export default function VisualAssetStudio({
   const [selectedTypeFilter, setSelectedTypeFilter] = useState<string>('all');
   const [selectedImage, setSelectedImage] = useState<ImageAsset | null>(null);
   const [copiedUrl, setCopiedUrl] = useState<string | null>(null);
+  const [showPromptDetails, setShowPromptDetails] = useState(false);
 
   // Generation form
   const [selectedType, setSelectedType] = useState<ImageType>('HERO');
   const [promptTopic, setPromptTopic] = useState('');
+  const [articleContentSample, setArticleContentSample] = useState('');
   const [userCustomInstructions, setUserCustomInstructions] = useState('');
   const [aspectRatio, setAspectRatio] = useState<'16:9' | '4:3' | '1:1' | '9:16'>('16:9');
+  const [referenceImageUrl, setReferenceImageUrl] = useState('');
+  const [referenceImagePreview, setReferenceImagePreview] = useState<string | null>(null);
 
   // Rejection modal
   const [rejectingImage, setRejectingImage] = useState<ImageAsset | null>(null);
-  const [rejectionReason, setRejectionReason] = useState('خیلی کلیشه‌ای است (Too generic)');
+  const [rejectionReason, setRejectionReason] = useState(REJECTION_REASONS[0].label);
+  const [customRejectionText, setCustomRejectionText] = useState('');
   const [isRegeneratingVariation, setIsRegeneratingVariation] = useState(false);
 
   const fetchImages = async () => {
@@ -74,6 +96,19 @@ export default function VisualAssetStudio({
     fetchImages();
   }, [activeSite.id]);
 
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        const base64 = reader.result as string;
+        setReferenceImagePreview(base64);
+        setReferenceImageUrl(base64);
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
   const handleGenerate = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsGenerating(true);
@@ -84,9 +119,11 @@ export default function VisualAssetStudio({
         body: JSON.stringify({
           siteId: activeSite.id,
           imageType: selectedType,
-          topic: promptTopic.trim() || activeSite.profile?.niche || 'تجهیزات کوهنوردی و کمپینگ',
+          title: promptTopic.trim() || activeSite.profile?.niche || 'تجهیزات کوهنوردی و کمپینگ',
+          content: articleContentSample.trim(),
           aspectRatio,
-          userInstructions: userCustomInstructions.trim()
+          userInstructions: userCustomInstructions.trim(),
+          productReferenceImage: referenceImageUrl.trim() || undefined
         })
       });
       const data = await res.json();
@@ -94,7 +131,10 @@ export default function VisualAssetStudio({
         setImages((prev) => [data.image, ...prev]);
         setSelectedImage(data.image);
         setPromptTopic('');
+        setArticleContentSample('');
         setUserCustomInstructions('');
+        setReferenceImageUrl('');
+        setReferenceImagePreview(null);
       }
     } catch (e) {
       console.error(e);
@@ -106,20 +146,30 @@ export default function VisualAssetStudio({
   const handleRejectAndRegenerate = async () => {
     if (!rejectingImage) return;
     setIsRegeneratingVariation(true);
+    const effectiveTargetId = rejectingImage.id || rejectingImage.imageId;
+    const finalReason = customRejectionText.trim()
+      ? `${rejectionReason}: ${customRejectionText.trim()}`
+      : rejectionReason;
+
     try {
-      const res = await fetch(`/api/ai/visual-assets/${rejectingImage.imageId}/reject`, {
+      const res = await fetch(`/api/ai/visual-assets/${effectiveTargetId}/reject`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           siteId: activeSite.id,
-          reason: rejectionReason
+          reason: finalReason,
+          userInstructions: customRejectionText.trim()
         })
       });
       const data = await res.json();
       if (data.image) {
-        setImages((prev) => [data.image, ...prev.map((img) => (img.imageId === rejectingImage.imageId ? { ...img, status: 'rejected' } : img))]);
+        setImages((prev) => [
+          data.image,
+          ...prev.map((img) => ((img.id || img.imageId) === effectiveTargetId ? { ...img, status: 'rejected' } : img))
+        ]);
         setSelectedImage(data.image);
         setRejectingImage(null);
+        setCustomRejectionText('');
       }
     } catch (e) {
       console.error(e);
@@ -136,20 +186,21 @@ export default function VisualAssetStudio({
 
   const filteredImages = images.filter((img) => {
     if (selectedTypeFilter === 'all') return true;
-    return img.imageType === selectedTypeFilter;
+    const type = img.type || img.imageType;
+    return type === selectedTypeFilter;
   });
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6" dir="rtl">
       {/* Studio Header */}
       <div className="bg-white p-4 rounded-xl border border-stone-200 shadow-xs flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
         <div>
           <h3 className="font-bold text-stone-900 text-base flex items-center gap-2">
             <Camera className="w-5 h-5 text-emerald-600" />
-            <span>استودیوی تصاویر هوشمند و ارزیابی تمایز بصری (Visual Asset Studio)</span>
+            <span>استودیوی تولید تصاویر هوشمند و ارزیابی تمایز بصری</span>
           </h3>
           <p className="text-xs text-stone-500">
-            تولید ۵ نوع تصویر هدفمند (Hero, Article, Product, Comparison, Tutorial) با امتیاز نوآوری بصری (Novelty Score) و جلوگیری از تکرار
+            تولید ۵ سیستم تصویر هدفمند (Hero, Article, Product, Comparison, Tutorial) با تحلیل کانسپت بصری، امتیاز تمایز و جلوگیری از تصاویر کلیشه‌ای
           </p>
         </div>
 
@@ -159,7 +210,7 @@ export default function VisualAssetStudio({
             onChange={(e) => setSelectedTypeFilter(e.target.value)}
             className="text-xs px-3 py-2 rounded-lg border border-stone-200 bg-stone-50 text-stone-700"
           >
-            <option value="all">همه تایپ‌های تصویر ({images.length})</option>
+            <option value="all">همه سیستم‌های تصویر ({images.length})</option>
             {IMAGE_TYPES.map((t) => (
               <option key={t.type} value={t.type}>
                 {t.label}
@@ -169,86 +220,175 @@ export default function VisualAssetStudio({
         </div>
       </div>
 
-      {/* Generation Form */}
-      <form onSubmit={handleGenerate} className="p-5 rounded-xl border border-stone-200 bg-white shadow-xs space-y-4">
-        <h4 className="font-bold text-stone-900 text-sm flex items-center gap-2">
-          <Sparkles className="w-4 h-4 text-emerald-600" />
-          <span>تولید هوشمند دارایی بصری برای «{activeSite.name}»</span>
-        </h4>
+      {/* Generation Panel */}
+      <form onSubmit={handleGenerate} className="bg-white p-5 rounded-xl border border-stone-200 shadow-xs space-y-4">
+        <div className="flex items-center justify-between border-b pb-3">
+          <h4 className="font-bold text-stone-900 text-sm flex items-center gap-2">
+            <Sparkles className="w-4 h-4 text-emerald-600" />
+            <span>طراحی و تولید تصویر تخصصی جدید</span>
+          </h4>
+          <span className="text-[11px] text-stone-400">
+            سایت فعال: <strong className="text-stone-700">{activeSite.name}</strong>
+          </span>
+        </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-          {/* Image Type Selector */}
-          <div>
-            <label className="block text-xs font-semibold text-stone-700 mb-1">نوع تصویر (Image Type) *</label>
-            <select
-              value={selectedType}
-              onChange={(e) => setSelectedType(e.target.value as ImageType)}
-              className="w-full text-xs px-3 py-2 rounded-lg border border-stone-300 bg-stone-50 text-stone-800 focus:outline-hidden focus:border-emerald-600"
-            >
-              {IMAGE_TYPES.map((t) => (
-                <option key={t.type} value={t.type}>
-                  {t.label}
-                </option>
-              ))}
-            </select>
-            <span className="text-[10px] text-stone-400 mt-1 block">
-              {IMAGE_TYPES.find((t) => t.type === selectedType)?.desc}
-            </span>
+        {/* 5 Image Systems Selector */}
+        <div>
+          <label className="block text-xs font-bold text-stone-800 mb-2">
+            انتخاب سیستم تصویر (Image System):
+          </label>
+          <div className="grid grid-cols-1 sm:grid-cols-5 gap-2">
+            {IMAGE_TYPES.map((t) => (
+              <button
+                key={t.type}
+                type="button"
+                onClick={() => setSelectedType(t.type)}
+                className={`p-2.5 rounded-lg border text-right transition-all cursor-pointer ${
+                  selectedType === t.type
+                    ? 'border-emerald-600 bg-emerald-50/50 ring-2 ring-emerald-500/20'
+                    : 'border-stone-200 bg-white hover:bg-stone-50'
+                }`}
+              >
+                <div className="font-bold text-xs text-stone-900 mb-0.5">{t.label}</div>
+                <div className="text-[10px] text-stone-500 leading-tight">{t.desc}</div>
+              </button>
+            ))}
           </div>
+        </div>
 
-          {/* Subject / Equipment */}
+        {/* Topic and Context Inputs */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           <div>
-            <label className="block text-xs font-semibold text-stone-700 mb-1">موضوع یا تجهیز هدف</label>
+            <label className="block text-xs font-bold text-stone-800 mb-1">
+              عنوان مقاله یا سوژه اصلی:
+            </label>
             <input
               type="text"
               value={promptTopic}
               onChange={(e) => setPromptTopic(e.target.value)}
-              placeholder="مثال: چادر ۴ فصل ژئودزیک در طوفان برف"
-              className="w-full text-xs px-3 py-2 rounded-lg border border-stone-300 bg-stone-50 focus:bg-white focus:outline-hidden focus:border-emerald-600"
+              placeholder="مثال: راهنمای خرید چادر کوهنوردی ۴ فصل، یا پوتین ترکینگ گورتکس"
+              className="w-full px-3 py-2 bg-stone-50 rounded-lg border border-stone-200 text-stone-800 text-xs focus:ring-2 focus:ring-emerald-500 outline-none"
+              required
             />
           </div>
 
-          {/* Aspect Ratio */}
           <div>
-            <label className="block text-xs font-semibold text-stone-700 mb-1">نسبت ابعاد (Aspect Ratio)</label>
-            <select
-              value={aspectRatio}
-              onChange={(e) => setAspectRatio(e.target.value as any)}
-              className="w-full text-xs px-3 py-2 rounded-lg border border-stone-300 bg-stone-50 text-stone-800"
-            >
-              <option value="16:9">۱۶:۹ افقی عریض (پیش‌فرض بنر و وبلاگ)</option>
-              <option value="4:3">۴:۳ استاندارد محتوای متنی</option>
-              <option value="1:1">۱:۱ مربع (صفحه محصول یا گالری)</option>
-              <option value="9:16">۹:۱۶ عمودی (استوری و بنر موبایل)</option>
-            </select>
-          </div>
-
-          {/* Instructions */}
-          <div className="sm:col-span-3">
-            <label className="block text-xs font-semibold text-stone-700 mb-1">دستورالعمل تکمیلی نورپردازی یا پرسپکتیو (اختیاری)</label>
-            <input
-              type="text"
-              value={userCustomInstructions}
-              onChange={(e) => setUserCustomInstructions(e.target.value)}
-              placeholder="مثال: نور گرم طلایی زمان غروب (Golden Hour)، فوکوس شارپ روی دوخت‌های ضدآب و زیپ‌های YKK"
-              className="w-full text-xs px-3 py-2 rounded-lg border border-stone-300 bg-stone-50 focus:bg-white focus:outline-hidden focus:border-emerald-600"
-            />
+            <label className="block text-xs font-bold text-stone-800 mb-1">
+              نسبت تصویر (Aspect Ratio):
+            </label>
+            <div className="grid grid-cols-4 gap-2">
+              {[
+                { r: '16:9', l: 'افقی ۱۶:۹ (Hero/Article)' },
+                { r: '4:3', l: 'استاندارد ۴:۳ (Product)' },
+                { r: '1:1', l: 'مربع ۱:۱ (Catalog)' },
+                { r: '9:16', l: 'عمودی ۹:۱۶ (Story)' }
+              ].map((item) => (
+                <button
+                  key={item.r}
+                  type="button"
+                  onClick={() => setAspectRatio(item.r as any)}
+                  className={`py-2 px-1 text-center rounded-lg border text-[11px] font-semibold cursor-pointer ${
+                    aspectRatio === item.r
+                      ? 'bg-emerald-600 text-white border-emerald-600'
+                      : 'bg-stone-50 text-stone-700 border-stone-200 hover:bg-stone-100'
+                  }`}
+                >
+                  {item.r}
+                </button>
+              ))}
+            </div>
           </div>
         </div>
 
-        <div className="flex justify-end pt-2">
+        {/* Content Context & Reference Image */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <div>
+            <label className="block text-xs font-bold text-stone-800 mb-1">
+              متن بخش مرتبط از مقاله (برای تحلیل دقیق کانسپت بصری):
+            </label>
+            <textarea
+              rows={3}
+              value={articleContentSample}
+              onChange={(e) => setArticleContentSample(e.target.value)}
+              placeholder="پاراگراف یا نکات فنی مقاله را وارد کنید تا هوش مصنوعی تصویر را دقیقاً بر اساس اطلاعات مقاله تولید کند (نه حدس تصادفی)..."
+              className="w-full px-3 py-2 bg-stone-50 rounded-lg border border-stone-200 text-stone-800 text-xs focus:ring-2 focus:ring-emerald-500 outline-none"
+            />
+          </div>
+
+          <div>
+            <label className="block text-xs font-bold text-stone-800 mb-1 flex items-center justify-between">
+              <span>تصویر مرجع محصول (اختیاری - Product Reference):</span>
+              <span className="text-[10px] text-stone-400 font-normal">تضمین حفظ رنگ، لوگو و فرم کالا</span>
+            </label>
+            <div className="space-y-2">
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={referenceImageUrl.startsWith('data:') ? 'فایل بارگذاری شده' : referenceImageUrl}
+                  onChange={(e) => {
+                    setReferenceImageUrl(e.target.value);
+                    setReferenceImagePreview(e.target.value);
+                  }}
+                  placeholder="آدرس اینترنتی تصویر محصول (URL) یا بارگذاری فایل..."
+                  className="flex-1 px-3 py-2 bg-stone-50 rounded-lg border border-stone-200 text-stone-800 text-xs outline-none"
+                />
+                <label className="px-3 py-2 bg-stone-100 hover:bg-stone-200 border border-stone-300 rounded-lg text-xs font-semibold flex items-center gap-1 cursor-pointer text-stone-700">
+                  <Upload className="w-3.5 h-3.5" />
+                  <span>آپلود</span>
+                  <input type="file" accept="image/*" onChange={handleFileUpload} className="hidden" />
+                </label>
+              </div>
+
+              {referenceImagePreview && (
+                <div className="flex items-center gap-2 bg-stone-50 p-1.5 rounded-lg border border-stone-200">
+                  <img
+                    src={referenceImagePreview}
+                    alt="پیش‌نمایش مرجع"
+                    referrerPolicy="no-referrer"
+                    className="w-8 h-8 rounded object-cover border"
+                  />
+                  <span className="text-[11px] text-stone-600 truncate flex-1">
+                    تصویر مرجع محصول فعال شد (فرم و مشخصات عینی در سنتز حفظ خواهد شد)
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setReferenceImageUrl('');
+                      setReferenceImagePreview(null);
+                    }}
+                    className="text-stone-400 hover:text-rose-600 text-xs px-1"
+                  >
+                    حذف
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* Submit */}
+        <div className="flex items-center justify-end gap-3 pt-2">
           <button
             type="submit"
-            disabled={isGenerating}
-            className="px-5 py-2 rounded-lg text-xs font-semibold bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-50 shadow-xs flex items-center gap-1.5 transition-colors"
+            disabled={isGenerating || !promptTopic.trim()}
+            className="px-5 py-2.5 bg-emerald-600 text-white rounded-xl text-xs font-bold flex items-center gap-2 hover:bg-emerald-700 disabled:opacity-50 shadow-xs cursor-pointer transition-colors"
           >
-            <Sparkles className={`w-4 h-4 ${isGenerating ? 'animate-spin' : ''}`} />
-            <span>{isGenerating ? 'در حال خلق تصویر با هوش مصنوعی...' : 'تولید تصویر اختصاصی با آزمون تمایز'}</span>
+            {isGenerating ? (
+              <>
+                <RefreshCw className="w-4 h-4 animate-spin" />
+                <span>در حال تحلیل کانسپت بصری و سنتز تصویر...</span>
+              </>
+            ) : (
+              <>
+                <Sparkles className="w-4 h-4" />
+                <span>تولید هوشمند تصویر با استراتژی نوین</span>
+              </>
+            )}
           </button>
         </div>
       </form>
 
-      {/* Main Studio Workspace (Split View: Selected Image & Thumbnails) */}
+      {/* Main Studio Workspace (Split View) */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Left/Main Column: Selected Image Inspector */}
         <div className="lg:col-span-2 space-y-4">
@@ -257,13 +397,27 @@ export default function VisualAssetStudio({
               <div className="relative bg-stone-950 flex items-center justify-center min-h-[340px]">
                 <img
                   src={selectedImage.url}
-                  alt={selectedImage.semanticDescription}
+                  alt={selectedImage.semanticDescription || selectedImage.prompt}
                   className="max-h-[460px] w-full object-contain"
                   referrerPolicy="no-referrer"
                 />
-                <span className="absolute top-3 right-3 bg-stone-900/80 backdrop-blur-xs text-white text-[11px] font-bold px-2.5 py-1 rounded-md">
-                  {selectedImage.imageType}
-                </span>
+
+                {/* Badges Overlay */}
+                <div className="absolute top-3 right-3 flex items-center gap-2">
+                  <span className="bg-stone-900/80 backdrop-blur-xs text-white text-[11px] font-bold px-2.5 py-1 rounded-md">
+                    {selectedImage.type || selectedImage.imageType}
+                  </span>
+                  <span
+                    className={`text-[10px] font-bold px-2 py-0.5 rounded-md shadow-xs ${
+                      selectedImage.source === 'gemini'
+                        ? 'bg-emerald-600 text-white'
+                        : 'bg-amber-600 text-white'
+                    }`}
+                  >
+                    {selectedImage.source === 'gemini' ? 'تولید اختصاصی جمینای (Gemini AI)' : 'آرشیو مستند تطبیقی (Fallback)'}
+                  </span>
+                </div>
+
                 {selectedImage.status === 'rejected' && (
                   <span className="absolute top-3 left-3 bg-rose-600 text-white text-[11px] font-bold px-2.5 py-1 rounded-md">
                     رد شده (Rejected)
@@ -275,16 +429,18 @@ export default function VisualAssetStudio({
               <div className="p-5 space-y-4">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b pb-3">
                   <div>
-                    <h4 className="font-bold text-stone-900 text-sm">{selectedImage.semanticDescription}</h4>
+                    <h4 className="font-bold text-stone-900 text-sm">
+                      {selectedImage.visualConcept?.primarySubject || selectedImage.semanticDescription || 'تصویر تجهیزات کوهنوردی'}
+                    </h4>
                     <span className="text-xs text-stone-500 font-mono">
-                      پرسپکتیو: {selectedImage.perspective || 'زاویه سینمایی میدانی'}
+                      استراتژی: {selectedImage.strategy?.name || selectedImage.perspective || 'ثبت مستند میدانی'}
                     </span>
                   </div>
 
                   <div className="flex items-center gap-2">
                     <button
                       onClick={() => handleCopyUrl(selectedImage.url)}
-                      className="px-3 py-1.5 rounded-lg text-xs font-medium border border-stone-200 hover:bg-stone-50 flex items-center gap-1.5 transition-colors"
+                      className="px-3 py-1.5 rounded-lg text-xs font-medium border border-stone-200 hover:bg-stone-50 flex items-center gap-1.5 transition-colors cursor-pointer"
                     >
                       {copiedUrl === selectedImage.url ? (
                         <>
@@ -294,7 +450,7 @@ export default function VisualAssetStudio({
                       ) : (
                         <>
                           <Copy className="w-3.5 h-3.5" />
-                          <span>کپی لینک عکس</span>
+                          <span>کپی لینک</span>
                         </>
                       )}
                     </button>
@@ -302,27 +458,63 @@ export default function VisualAssetStudio({
                     {onApplyImageToPost && (
                       <button
                         onClick={() => onApplyImageToPost(selectedImage.url)}
-                        className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-emerald-600 text-white hover:bg-emerald-700 flex items-center gap-1.5 shadow-xs transition-colors"
+                        className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-emerald-600 text-white hover:bg-emerald-700 flex items-center gap-1.5 shadow-xs transition-colors cursor-pointer"
                       >
                         <CheckCircle2 className="w-3.5 h-3.5" />
-                        <span>انتخاب برای مقاله فعال</span>
+                        <span>انتخاب برای مقاله</span>
                       </button>
                     )}
 
                     <button
                       onClick={() => setRejectingImage(selectedImage)}
-                      className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-rose-50 text-rose-700 hover:bg-rose-100 border border-rose-200 flex items-center gap-1.5 transition-colors"
+                      className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-rose-50 text-rose-700 hover:bg-rose-100 border border-rose-200 flex items-center gap-1.5 transition-colors cursor-pointer"
                     >
                       <XCircle className="w-3.5 h-3.5" />
-                      <span>رد و بازتولید (Reject & Diff)</span>
+                      <span>رد و تغییر زاویه (Reject & Diff)</span>
                     </button>
                   </div>
                 </div>
 
-                {/* Novelty & Hash Metrics Grid */}
+                {/* Visual Concept: whatIsShown & whyItMatters */}
+                {selectedImage.visualConcept && (
+                  <div className="bg-stone-50 p-3.5 rounded-xl border border-stone-200 space-y-2">
+                    <div className="flex items-center gap-1.5 text-xs font-bold text-stone-800">
+                      <Compass className="w-4 h-4 text-emerald-600" />
+                      <span>کانسپت بصری تصویر (Visual Concept):</span>
+                    </div>
+                    <div className="text-xs text-stone-700 leading-relaxed">
+                      <strong className="text-stone-900">محتوای کادر: </strong>
+                      {selectedImage.visualConcept.whatIsShown}
+                    </div>
+                    <div className="text-xs text-emerald-800 bg-emerald-50/70 p-2.5 rounded-lg border border-emerald-100 leading-relaxed">
+                      <strong>چرا این تصویر برای مقاله مهم است (Why It Matters): </strong>
+                      {selectedImage.visualConcept.whyItMatters}
+                    </div>
+                  </div>
+                )}
+
+                {/* Difference Plan (if version > 1) */}
+                {selectedImage.differencePlan && (
+                  <div className="bg-amber-50/80 p-3.5 rounded-xl border border-amber-200 space-y-2">
+                    <div className="flex items-center gap-1.5 text-xs font-bold text-amber-900">
+                      <Layers className="w-4 h-4 text-amber-700" />
+                      <span>برنامه تمایز نسبت به نسخه قبل (Difference Plan):</span>
+                    </div>
+                    <p className="text-xs text-amber-800">
+                      {selectedImage.differencePlan.reason}
+                    </p>
+                    <ul className="text-[11px] text-amber-800 space-y-1 list-disc list-inside">
+                      {selectedImage.differencePlan.changedDimensions.map((dim, idx) => (
+                        <li key={idx}>{dim}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+
+                {/* Quality & Novelty Metrics Grid */}
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
                   <div className="p-3 bg-stone-50 rounded-lg border border-stone-100">
-                    <span className="text-stone-400 block text-[10px]">امتیاز نوآوری (Novelty)</span>
+                    <span className="text-stone-400 block text-[10px]">امتیاز تمایز (Novelty)</span>
                     <strong className="text-emerald-700 font-extrabold text-sm">{selectedImage.noveltyScore}٪</strong>
                   </div>
                   <div className="p-3 bg-stone-50 rounded-lg border border-stone-100">
@@ -330,21 +522,30 @@ export default function VisualAssetStudio({
                     <strong className="text-stone-800 font-bold text-sm">{selectedImage.quality?.realism || 9}/10</strong>
                   </div>
                   <div className="p-3 bg-stone-50 rounded-lg border border-stone-100">
-                    <span className="text-stone-400 block text-[10px]">دقت تجهیزات و ارگونومی</span>
+                    <span className="text-stone-400 block text-[10px]">دقت فنی تجهیزات</span>
                     <strong className="text-stone-800 font-bold text-sm">{selectedImage.quality?.equipmentAccuracy || 9}/10</strong>
                   </div>
                   <div className="p-3 bg-stone-50 rounded-lg border border-stone-100">
-                    <span className="text-stone-400 block text-[10px]">هش تمایز (dHash)</span>
-                    <code className="text-stone-600 font-mono text-[10px]">{selectedImage.perceptualHash || '7a8f3b2c...'}</code>
+                    <span className="text-stone-400 block text-[10px]">شاخص ارگونومی و ترکیب</span>
+                    <strong className="text-stone-800 font-bold text-sm">{selectedImage.quality?.composition || 9}/10</strong>
                   </div>
                 </div>
 
-                {/* Prompt Details */}
-                <div className="p-3 bg-stone-50 rounded-lg border border-stone-100 text-xs">
-                  <span className="font-bold text-stone-700 block mb-1">پرامپت مهندسی شده عکاسی:</span>
-                  <p className="text-stone-600 font-mono text-[11px] leading-relaxed" dir="ltr">
-                    {selectedImage.prompt}
-                  </p>
+                {/* Collapsible Shot Brief / Prompt */}
+                <div className="border border-stone-200 rounded-lg overflow-hidden">
+                  <button
+                    type="button"
+                    onClick={() => setShowPromptDetails(!showPromptDetails)}
+                    className="w-full px-3 py-2 bg-stone-50 hover:bg-stone-100 text-xs font-bold text-stone-700 flex items-center justify-between cursor-pointer"
+                  >
+                    <span>جزئیات پرامپت مهندسی شده و دستورالعمل‌های فنی عکاسی</span>
+                    {showPromptDetails ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                  </button>
+                  {showPromptDetails && (
+                    <div className="p-3 bg-stone-900 text-stone-200 text-[11px] font-mono leading-relaxed" dir="ltr">
+                      {selectedImage.prompt}
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
@@ -357,101 +558,141 @@ export default function VisualAssetStudio({
 
         {/* Right Column: Thumbnails Gallery */}
         <div className="space-y-3">
-          <h4 className="font-bold text-stone-800 text-xs flex items-center justify-between">
-            <span>آرشیو دارایی‌های بصری ({filteredImages.length})</span>
-            <button onClick={fetchImages} className="text-emerald-700 hover:text-emerald-900 flex items-center gap-1">
-              <RefreshCw className="w-3 h-3" />
-              <span>بروزرسانی</span>
+          <div className="flex items-center justify-between text-xs font-bold text-stone-800">
+            <span>آرشیو تصاویر تولیدی ({filteredImages.length})</span>
+            <button
+              onClick={fetchImages}
+              disabled={isLoading}
+              className="text-stone-400 hover:text-stone-600 flex items-center gap-1 cursor-pointer"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? 'animate-spin' : ''}`} />
+              <span>تازه‌سازی</span>
             </button>
-          </h4>
+          </div>
 
-          {filteredImages.length === 0 ? (
-            <div className="p-8 text-center bg-white rounded-xl border border-stone-200 text-stone-400 text-xs">
-              تصویری یافت نشد. با فرم بالا اولین تصویر را خلق کنید.
-            </div>
-          ) : (
-            <div className="grid grid-cols-2 gap-2 max-h-[600px] overflow-y-auto pr-1">
-              {filteredImages.map((img) => {
-                const isSelected = selectedImage?.imageId === img.imageId;
-                return (
-                  <button
-                    key={img.imageId}
-                    onClick={() => setSelectedImage(img)}
-                    className={`relative rounded-xl overflow-hidden border text-right transition-all group aspect-4/3 ${
-                      isSelected
-                        ? 'border-emerald-600 ring-2 ring-emerald-600/30'
-                        : 'border-stone-200 hover:border-stone-300'
-                    }`}
-                  >
-                    <img
-                      src={img.url}
-                      alt={img.semanticDescription}
-                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200"
-                      referrerPolicy="no-referrer"
-                    />
-                    <div className="absolute inset-0 bg-gradient-to-t from-stone-950/80 via-transparent to-transparent flex flex-col justify-end p-2">
-                      <span className="text-[10px] font-bold text-white line-clamp-1">{img.semanticDescription}</span>
-                      <span className="text-[9px] text-emerald-300 font-mono">{img.imageType}</span>
+          <div className="space-y-2 max-h-[750px] overflow-y-auto pr-1">
+            {filteredImages.map((img) => {
+              const imgId = img.id || img.imageId;
+              const isSelected = (selectedImage?.id || selectedImage?.imageId) === imgId;
+              return (
+                <div
+                  key={imgId}
+                  onClick={() => setSelectedImage(img)}
+                  className={`p-2.5 rounded-xl border transition-all cursor-pointer flex gap-3 ${
+                    isSelected
+                      ? 'border-emerald-600 bg-emerald-50/40 ring-1 ring-emerald-500'
+                      : 'border-stone-200 bg-white hover:bg-stone-50'
+                  }`}
+                >
+                  <img
+                    src={img.url}
+                    alt={img.semanticDescription || img.prompt}
+                    referrerPolicy="no-referrer"
+                    className="w-20 h-16 rounded-lg object-cover bg-stone-100 shrink-0"
+                  />
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center justify-between gap-1 mb-1">
+                      <span className="text-[10px] font-bold bg-stone-100 text-stone-700 px-1.5 py-0.5 rounded">
+                        {img.type || img.imageType}
+                      </span>
+                      <span
+                        className={`text-[9px] font-bold px-1.5 py-0.5 rounded ${
+                          img.source === 'gemini' ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'
+                        }`}
+                      >
+                        {img.source === 'gemini' ? 'Gemini' : 'Fallback'}
+                      </span>
                     </div>
-                  </button>
-                );
-              })}
-            </div>
-          )}
+                    <div className="text-xs font-semibold text-stone-800 truncate">
+                      {img.visualConcept?.primarySubject || img.semanticDescription || 'تصویر کوهنوردی'}
+                    </div>
+                    <div className="text-[10px] text-stone-400 truncate mt-0.5">
+                      امتیاز نوآوری: {img.noveltyScore}٪
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
         </div>
       </div>
 
-      {/* Rejection Feedback Modal */}
+      {/* Rejection & Difference Plan Modal */}
       {rejectingImage && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-stone-900/60 backdrop-blur-xs">
-          <div className="bg-white rounded-2xl shadow-2xl border border-stone-200 w-full max-w-md p-6 space-y-4 text-stone-900 animate-in fade-in zoom-in-95">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-rose-100 text-rose-700 flex items-center justify-center">
-                <AlertCircle className="w-5 h-5" />
-              </div>
-              <div>
-                <h4 className="font-bold text-base text-stone-900">حلقه بازخورد و اصلاح تصویر (Rejection Loop)</h4>
-                <p className="text-xs text-stone-500">دلیل رد تصویر را مشخص کنید تا زاویه و متغیرها تغییر کنند</p>
-              </div>
-            </div>
-
-            <div className="space-y-2">
-              <label className="block text-xs font-semibold text-stone-700">دلیل رد تصویر فعلی:</label>
-              {[
-                'خیلی کلیشه‌ای است (Too generic)',
-                'زاویه دوربین و پرسپکتیو مناسب نیست (Wrong camera angle)',
-                'واقع‌گرایی کافی ندارد (Not realistic enough)',
-                'تجهیزات و دوخت‌ها دقیق نیستند (Inaccurate gear details)',
-                'بیش از حد به تصویر قبلی شبیه است (Too similar to existing image)'
-              ].map((r, i) => (
-                <label key={i} className="flex items-center gap-2 p-2.5 rounded-lg border border-stone-200 hover:bg-stone-50 cursor-pointer text-xs">
-                  <input
-                    type="radio"
-                    name="rejectionReason"
-                    checked={rejectionReason === r}
-                    onChange={() => setRejectionReason(r)}
-                    className="text-rose-600 focus:ring-rose-500"
-                  />
-                  <span>{r}</span>
-                </label>
-              ))}
-            </div>
-
-            <div className="flex justify-end gap-2 pt-2 border-t">
+        <div className="fixed inset-0 z-50 bg-stone-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-xl space-y-4 border border-stone-200">
+            <div className="flex items-center justify-between border-b pb-3">
+              <h4 className="font-bold text-stone-900 text-sm flex items-center gap-2">
+                <AlertCircle className="w-4 h-4 text-rose-600" />
+                <span>رد تصویر و بازتولید با زاویه و استراتژی نوین</span>
+              </h4>
               <button
-                type="button"
                 onClick={() => setRejectingImage(null)}
-                className="px-4 py-2 rounded-lg text-xs text-stone-600 hover:bg-stone-100"
+                className="text-stone-400 hover:text-stone-600 text-xs"
               >
                 انصراف
               </button>
+            </div>
+
+            <p className="text-xs text-stone-600 leading-relaxed">
+              با انتخاب علت رد تصویر، موتور بصری به‌طور خودکار استراتژی فعلی را کنار گذاشته و بر اساس بازخورد شما کادربندی، زاویه نور و فوکوس کاملاً متفاوتی خلق خواهد کرد:
+            </p>
+
+            <div>
+              <label className="block text-xs font-bold text-stone-800 mb-1.5">
+                علت رد این تصویر چیست؟
+              </label>
+              <select
+                value={rejectionReason}
+                onChange={(e) => setRejectionReason(e.target.value)}
+                className="w-full px-3 py-2 bg-stone-50 rounded-lg border border-stone-300 text-stone-800 text-xs"
+              >
+                {REJECTION_REASONS.map((r) => (
+                  <option key={r.key} value={r.label}>
+                    {r.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold text-stone-800 mb-1">
+                توضیحات تکمیلی برای اصلاح (اختیاری):
+              </label>
+              <textarea
+                rows={2}
+                value={customRejectionText}
+                onChange={(e) => setCustomRejectionText(e.target.value)}
+                placeholder="مثال: زاویه دوربین را به سطح مماس زمین تغییر بده و روی عاج‌های زیره زوم کن..."
+                className="w-full px-3 py-2 bg-stone-50 rounded-lg border border-stone-200 text-stone-800 text-xs outline-none"
+              />
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-2 border-t">
               <button
+                type="button"
+                onClick={() => setRejectingImage(null)}
+                className="px-4 py-2 rounded-xl text-xs font-semibold text-stone-600 hover:bg-stone-100"
+              >
+                لغو
+              </button>
+              <button
+                type="button"
                 onClick={handleRejectAndRegenerate}
                 disabled={isRegeneratingVariation}
-                className="px-4 py-2 rounded-lg text-xs font-semibold bg-rose-600 text-white hover:bg-rose-700 disabled:opacity-50 shadow-xs flex items-center gap-1.5"
+                className="px-5 py-2 rounded-xl text-xs font-bold bg-rose-600 text-white hover:bg-rose-700 flex items-center gap-1.5 shadow-xs"
               >
-                <RefreshCw className={`w-3.5 h-3.5 ${isRegeneratingVariation ? 'animate-spin' : ''}`} />
-                <span>{isRegeneratingVariation ? 'در حال بازتولید با زاویه نو...' : 'ثبت بازخورد و بازتولید عکس'}</span>
+                {isRegeneratingVariation ? (
+                  <>
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                    <span>در حال تدوین Difference Plan و بازتولید...</span>
+                  </>
+                ) : (
+                  <>
+                    <RefreshCw className="w-3.5 h-3.5" />
+                    <span>تولید نسخه متفاوت (Different Strategy)</span>
+                  </>
+                )}
               </button>
             </div>
           </div>

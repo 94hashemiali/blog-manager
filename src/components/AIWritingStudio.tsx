@@ -106,7 +106,12 @@ export default function AIWritingStudio({
         body: JSON.stringify({
           prompt: effectivePrompt,
           title: title || 'تجهیزات کمپینگ مدنی کمپ',
-          content: content?.slice(0, 600) || '',
+          content: content || '',
+          article: {
+            title: title || 'تجهیزات کمپینگ مدنی کمپ',
+            content: content || ''
+          },
+          imageType: 'HERO',
           style: visualStyle,
           aspectRatio
         })

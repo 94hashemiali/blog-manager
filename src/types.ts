@@ -299,36 +299,98 @@ export interface ImageNovelty {
   rejectionReason?: string;
 }
 
+export type ProductImageMode =
+  | 'PRODUCT_CONTEXT'
+  | 'PRODUCT_EDITORIAL'
+  | 'PRODUCT_DETAIL'
+  | 'PRODUCT_REFERENCE_SCENE'
+  | 'PRODUCT_COMPARISON';
+
+export interface StructuredArticleContext {
+  title: string;
+  content?: string;
+  sections?: { heading: string; text?: string }[];
+  keywords?: string[];
+  products?: string[];
+  category?: string;
+  searchIntent?: string;
+  targetReader?: string;
+}
+
+export interface VisualConcept {
+  whatIsShown: string;
+  whyItMatters: string;
+  primarySubject: string;
+  secondarySubjects: string[];
+  action: string;
+  environment: string;
+  technicalDetails: string[];
+  compositionIdea: string;
+}
+
+export interface VisualStrategy {
+  id: string;
+  name: string;
+  category: ImageType;
+  shotType: string;
+  cameraAngle: string;
+  lighting: string;
+  perspective: string;
+  gearEmphasis: string;
+  compositionPattern: string;
+}
+
+export interface DifferencePlan {
+  previousStrategyId?: string;
+  newStrategyId: string;
+  changedDimensions: string[];
+  reason: string;
+}
+
 export interface ImageQualityEvaluation {
   relevance: number; // 1-10
   realism: number; // 1-10
   composition: number; // 1-10
+  subjectClarity?: number; // 1-10
   equipmentAccuracy: number; // 1-10
-  anatomy: number; // 1-10
-  novelty: number; // 1-10
+  humanAnatomy?: number; // 1-10
+  anatomy?: number; // 1-10
+  technicalAccuracy?: number; // 1-10
+  visualNovelty?: number; // 1-10
+  novelty?: number; // 1-10
+  editorialQuality?: number; // 1-10
   overall: number; // 1-10
   problems: string[];
   shouldRegenerate: boolean;
 }
 
 export interface ImageAsset {
+  id?: string;
   imageId: string;
   siteId: string;
   articleId?: string | number;
+  type?: ImageType;
   imageType: ImageType;
+  version?: number;
+  generationVersion?: number;
+  source?: 'gemini' | 'unsplash_fallback';
   prompt: string;
-  visualFingerprint: string;
+  visualConcept?: VisualConcept;
+  visualBrief?: Record<string, any>;
+  strategy?: VisualStrategy;
+  differencePlan?: DifferencePlan;
+  visualFingerprint?: string;
   perceptualHash: string;
   semanticDescription: string;
   noveltyScore: number;
   quality?: ImageQualityEvaluation;
-  generationVersion: number;
   createdAt: string;
   url: string;
   aspectRatio: string;
   status: 'active' | 'candidate' | 'rejected';
   rejectionReason?: string;
   perspective?: string;
+  referenceImageUrl?: string;
   isAiGenerated?: boolean;
 }
 

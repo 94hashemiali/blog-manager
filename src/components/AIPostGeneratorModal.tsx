@@ -187,20 +187,35 @@ export default function AIPostGeneratorModal({
         // 2. Generate Smart Hero Image with Visual Engine & Perceptual Novelty
         let featuredImageUrl = '';
         try {
+          const structuredSections = (article.sections || []).map((s: any) => ({
+            heading: extractString(s.heading, ''),
+            text: extractString(s.content, '')
+          }));
+
           const imgRes = await fetch('/api/ai/visual-assets', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               siteId: activeSite?.id || 'site-madanicamp',
-              imageType: heroImageType,
-              topic: cleanTitle,
+              imageType: heroImageType || 'HERO',
+              title: cleanTitle,
+              content: fullContent,
+              article: {
+                title: cleanTitle,
+                content: fullContent,
+                sections: structuredSections,
+                keywords: keywords || [],
+                products: article.recommendedProducts || [],
+                category: article.category || 'تجهیزات کوهنوردی'
+              },
               aspectRatio: '16:9'
             })
           });
           if (imgRes.ok) {
             const imgData = await imgRes.json();
-            if (imgData.image && imgData.image.url) {
-              featuredImageUrl = imgData.image.url;
+            const chosenUrl = imgData.imageUrl || imgData.image?.url;
+            if (chosenUrl) {
+              featuredImageUrl = chosenUrl;
             }
           }
         } catch {

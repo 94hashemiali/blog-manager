@@ -1,5 +1,6 @@
 import { X, ExternalLink, Calendar, User, Clock, Tag, Folder, Edit3 } from 'lucide-react';
 import { WPPost } from '../types';
+import { extractString } from '../utils/postUtils';
 
 interface PostPreviewModalProps {
   post: WPPost | null;
@@ -11,8 +12,12 @@ interface PostPreviewModalProps {
 export default function PostPreviewModal({ post, isOpen, onClose, onEdit }: PostPreviewModalProps) {
   if (!isOpen || !post) return null;
 
+  const titleStr = extractString(post.title, 'بدون عنوان');
+  const contentStr = extractString(post.content, '');
+  const excerptStr = extractString(post.excerpt, '');
+
   // Calculate read time
-  const plainText = (post.content.rendered || '').replace(/<[^>]+>/g, ' ');
+  const plainText = contentStr.replace(/<[^>]+>/g, ' ');
   const wordCount = plainText.trim().split(/\s+/).filter(Boolean).length;
   const readTimeMinutes = Math.max(1, Math.ceil(wordCount / 200));
 
@@ -78,7 +83,7 @@ export default function PostPreviewModal({ post, isOpen, onClose, onEdit }: Post
             <div className="rounded-xl overflow-hidden max-h-72 w-full bg-stone-100 border border-stone-200">
               <img
                 src={post.featured_media_url}
-                alt={post.title.rendered}
+                alt={titleStr}
                 referrerPolicy="no-referrer"
                 className="w-full h-full object-cover"
               />
@@ -109,21 +114,21 @@ export default function PostPreviewModal({ post, isOpen, onClose, onEdit }: Post
 
           {/* Article Title */}
           <h1 className="text-2xl sm:text-3xl font-black text-stone-900 leading-tight">
-            {post.title.rendered}
+            {titleStr}
           </h1>
 
           {/* Excerpt */}
-          {post.excerpt?.rendered && (
+          {excerptStr && (
             <div 
               className="p-4 bg-emerald-50/70 border-r-4 border-emerald-600 rounded-lg text-stone-700 text-sm italic leading-relaxed"
-              dangerouslySetInnerHTML={{ __html: post.excerpt.rendered }}
+              dangerouslySetInnerHTML={{ __html: excerptStr }}
             />
           )}
 
           {/* Article Full Body */}
           <div 
             className="prose prose-stone max-w-none text-stone-800 text-sm leading-loose space-y-4 [&>h2]:text-xl [&>h2]:font-bold [&>h2]:text-stone-900 [&>h2]:mt-6 [&>h3]:text-lg [&>h3]:font-bold [&>h3]:text-stone-800 [&>h3]:mt-4 [&>ul]:list-disc [&>ul]:pr-5 [&>ol]:list-decimal [&>ol]:pr-5 [&>p]:mb-3 [&>img]:rounded-xl [&>img]:my-4"
-            dangerouslySetInnerHTML={{ __html: post.content.rendered }}
+            dangerouslySetInnerHTML={{ __html: contentStr }}
           />
 
           {/* Tags */}

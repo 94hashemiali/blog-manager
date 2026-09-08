@@ -5,6 +5,7 @@ import {
   X, RotateCcw, ArrowUpDown, Layers, SlidersHorizontal
 } from 'lucide-react';
 import { WPPost, WPCategory } from '../types';
+import { extractString } from '../utils/postUtils';
 
 interface PostListProps {
   posts: WPPost[];
@@ -62,12 +63,16 @@ export default function PostList({
   const filteredPosts = useMemo(() => {
     return posts.filter((post) => {
       const q = searchTerm.trim().toLowerCase();
+      const titleText = extractString(post.title).toLowerCase();
+      const excerptText = extractString(post.excerpt).toLowerCase();
+      const contentText = extractString(post.content).toLowerCase();
+
       const matchesSearch =
         !q ||
-        post.title.rendered.toLowerCase().includes(q) ||
-        (post.excerpt?.rendered && post.excerpt.rendered.toLowerCase().includes(q)) ||
-        (post.content?.rendered && post.content.rendered.toLowerCase().includes(q)) ||
-        post.slug.toLowerCase().includes(q) ||
+        titleText.includes(q) ||
+        excerptText.includes(q) ||
+        contentText.includes(q) ||
+        (post.slug || '').toLowerCase().includes(q) ||
         post.tag_names?.some((t) => t.toLowerCase().includes(q)) ||
         post.category_names?.some((c) => c.toLowerCase().includes(q));
 
@@ -83,7 +88,7 @@ export default function PostList({
       return matchesSearch && matchesCategory && matchesStatus;
     }).sort((a, b) => {
       if (sortBy === 'title') {
-        return (a.title.rendered || '').localeCompare(b.title.rendered || '', 'fa');
+        return extractString(a.title).localeCompare(extractString(b.title), 'fa');
       }
       const timeA = new Date(a.date || a.local_updated_at || 0).getTime();
       const timeB = new Date(b.date || b.local_updated_at || 0).getTime();
@@ -407,7 +412,10 @@ export default function PostList({
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {filteredPosts.map((post) => {
-            const plain = (post.content.rendered || '').replace(/<[^>]+>/g, ' ');
+            const titleStr = extractString(post.title, 'بدون عنوان');
+            const contentStr = extractString(post.content, '');
+            const excerptStr = extractString(post.excerpt, '');
+            const plain = contentStr.replace(/<[^>]+>/g, ' ');
             const words = plain.trim().split(/\s+/).filter(Boolean).length;
             const readTime = Math.max(1, Math.ceil(words / 200));
 
@@ -422,7 +430,7 @@ export default function PostList({
                   {post.featured_media_url ? (
                     <img
                       src={post.featured_media_url}
-                      alt={post.title.rendered}
+                      alt={titleStr}
                       referrerPolicy="no-referrer"
                       className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
                     />
@@ -476,14 +484,14 @@ export default function PostList({
                     onClick={() => onSelectPost(post)}
                     className="text-base font-bold text-stone-900 hover:text-emerald-700 transition-colors line-clamp-2 cursor-pointer leading-snug mb-2"
                   >
-                    {post.title.rendered}
+                    {titleStr}
                   </h3>
 
                   {/* Excerpt */}
                   <div 
                     className="text-xs text-stone-600 line-clamp-3 leading-relaxed mb-4 flex-1"
                     dangerouslySetInnerHTML={{ 
-                      __html: (post.excerpt?.rendered || plain).replace(/<[^>]+>/g, '').slice(0, 160) + '...'
+                      __html: (excerptStr || plain).replace(/<[^>]+>/g, '').slice(0, 160) + '...'
                     }}
                   />
 

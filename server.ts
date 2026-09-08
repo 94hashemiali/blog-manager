@@ -4,6 +4,12 @@ import { fileURLToPath } from 'url';
 import { createServer as createViteServer } from 'vite';
 import { GoogleGenAI } from '@google/genai';
 import dotenv from 'dotenv';
+import { db, DEFAULT_SITE_ID } from './server/db.js';
+import { discoverKeywordOpportunities, analyzeCompetitors, calculatePriorityScore } from './server/seoEngine.js';
+import { checkDuplication } from './server/duplicationGuard.js';
+import { generateArticleWithDifferenceEngine } from './server/articleEngine.js';
+import { generateVisualAsset } from './server/visualEngine.js';
+import { analyzeSiteIntelligence } from './server/siteIntelligence.js';
 
 dotenv.config();
 
@@ -1248,6 +1254,364 @@ function hashString(str: string): number {
   }
   return hash;
 }
+
+// =============================================================
+// PART 1 & 2: MULTI-WORDPRESS WEBSITE MANAGEMENT API
+// =============================================================
+app.get('/api/sites', (req, res) => {
+  const sites = db.getSites();
+  // Sanitize application password for client security
+  const sanitized = sites.map((s) => ({
+    ...s,
+    wordpress: {
+      baseUrl: s.wordpress?.baseUrl || s.url,
+      username: s.wordpress?.username || '',
+      hasPassword: Boolean(s.wordpress?.applicationPassword)
+    }
+  }));
+  res.json({ sites: sanitized });
+});
+
+app.get('/api/sites/:id', (req, res) => {
+  const site = db.getSiteById(req.params.id);
+  if (!site) return res.status(404).json({ error: 'سایت یافت نشد' });
+  const sanitized = {
+    ...site,
+    wordpress: {
+      baseUrl: site.wordpress?.baseUrl || site.url,
+      username: site.wordpress?.username || '',
+      hasPassword: Boolean(site.wordpress?.applicationPassword)
+    }
+  };
+  res.json({ site: sanitized });
+});
+
+app.post('/api/sites', async (req, res) => {
+  const { name, url, description, language = 'fa', wordpress, brand, seo, content } = req.body;
+  if (!name || !url) {
+    return res.status(400).json({ error: 'نام و آدرس سایت الزامی است' });
+  }
+
+  const cleanUrl = url.trim().replace(/\/+$/, '');
+  const id = `site-${Date.now()}`;
+  const newSite = {
+    id,
+    name: name.trim(),
+    url: cleanUrl,
+    description: description || '',
+    language,
+    wordpress: {
+      baseUrl: cleanUrl,
+      username: wordpress?.username || '',
+      applicationPassword: wordpress?.applicationPassword || '',
+      hasPassword: Boolean(wordpress?.applicationPassword)
+    },
+    brand: {
+      name: brand?.name || name,
+      description: brand?.description || description || '',
+      primaryColor: brand?.primaryColor || '#059669',
+      secondaryColor: brand?.secondaryColor || '#0f766e'
+    },
+    seo: {
+      domain: seo?.domain || cleanUrl.replace(/^https?:\/\//, ''),
+      targetCountry: seo?.targetCountry || 'ایران',
+      targetLanguage: seo?.targetLanguage || 'فارسی',
+      targetAudience: seo?.targetAudience || 'عموم کاربران و خریداران'
+    },
+    content: {
+      tone: content?.tone || 'educational',
+      topics: content?.topics || [],
+      excludedTopics: content?.excludedTopics || []
+    },
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString()
+  };
+
+  const sites = db.getSites();
+  sites.push(newSite);
+  db.saveSites(sites);
+
+  // Trigger non-blocking site intelligence analysis
+  analyzeSiteIntelligence(id).catch((err) => console.warn('Background site intelligence failed:', err));
+
+  res.json({ success: true, site: newSite, message: 'وب‌سایت جدید با موفقیت اضافه شد.' });
+});
+
+app.put('/api/sites/:id', (req, res) => {
+  const { name, url, description, language, wordpress, brand, seo, content } = req.body;
+  const sites = db.getSites();
+  const idx = sites.findIndex((s) => s.id === req.params.id);
+  if (idx === -1) return res.status(404).json({ error: 'سایت یافت نشد' });
+
+  const existing = sites[idx];
+  const cleanUrl = url ? url.trim().replace(/\/+$/, '') : existing.url;
+
+  sites[idx] = {
+    ...existing,
+    name: name !== undefined ? name.trim() : existing.name,
+    url: cleanUrl,
+    description: description !== undefined ? description : existing.description,
+    language: language || existing.language,
+    wordpress: {
+      baseUrl: cleanUrl,
+      username: wordpress?.username !== undefined ? wordpress.username : existing.wordpress?.username,
+      applicationPassword: wordpress?.applicationPassword !== undefined ? wordpress.applicationPassword : existing.wordpress?.applicationPassword,
+      hasPassword: Boolean(wordpress?.applicationPassword || existing.wordpress?.applicationPassword)
+    },
+    brand: { ...existing.brand, ...brand },
+    seo: { ...existing.seo, ...seo },
+    content: { ...existing.content, ...content },
+    updatedAt: new Date().toISOString()
+  };
+
+  db.saveSites(sites);
+  res.json({ success: true, site: sites[idx], message: 'تنظیمات وب‌سایت بروزرسانی شد.' });
+});
+
+app.delete('/api/sites/:id', (req, res) => {
+  if (req.params.id === DEFAULT_SITE_ID) {
+    return res.status(400).json({ error: 'سایت پیش‌فرض قابل حذف نیست' });
+  }
+  let sites = db.getSites();
+  sites = sites.filter((s) => s.id !== req.params.id);
+  db.saveSites(sites);
+  res.json({ success: true, message: 'وب‌سایت حذف شد' });
+});
+
+app.post('/api/sites/:id/analyze', async (req, res) => {
+  try {
+    const profile = await analyzeSiteIntelligence(req.params.id);
+    res.json({ success: true, profile, message: 'تحلیل هوشمند وب‌سایت با موفقیت تکمیل شد.' });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'خطا در تحلیل وب‌سایت' });
+  }
+});
+
+app.post('/api/sites/:id/test-connection', async (req, res) => {
+  const site = db.getSiteById(req.params.id);
+  const targetUrl = site.wordpress?.baseUrl || site.url;
+  const username = site.wordpress?.username;
+  const appPassword = site.wordpress?.applicationPassword;
+
+  try {
+    const startTime = Date.now();
+    let authHeaders: Record<string, string> = { 'User-Agent': 'Madani-Content-OS/2.0' };
+    if (username && appPassword) {
+      authHeaders['Authorization'] = `Basic ${Buffer.from(`${username}:${appPassword}`).toString('base64')}`;
+    }
+
+    const response = await fetch(`${targetUrl}/wp-json/wp/v2/posts?per_page=1`, {
+      headers: authHeaders,
+      signal: AbortSignal.timeout(8000)
+    });
+    const duration = Date.now() - startTime;
+
+    if (response.ok) {
+      const totalPosts = response.headers.get('X-WP-Total') || '0';
+      res.json({
+        connected: true,
+        siteUrl: targetUrl,
+        responseTimeMs: duration,
+        totalPosts: parseInt(totalPosts, 10),
+        authenticated: Boolean(username && appPassword),
+        status: 'online',
+        message: 'اتصال به وب‌سایت وردپرس با موفقیت برقرار شد.'
+      });
+    } else {
+      res.json({
+        connected: false,
+        siteUrl: targetUrl,
+        statusCode: response.status,
+        message: `پاسخ از سرور وردپرس: کد ${response.status}`
+      });
+    }
+  } catch (err: any) {
+    res.json({
+      connected: false,
+      siteUrl: targetUrl,
+      message: err.message || 'خطا در برقراری ارتباط با سایت'
+    });
+  }
+});
+
+// =============================================================
+// PART 4, 5, 6, 8: SEO, KEYWORDS, COMPETITORS & DUPLICATION API
+// =============================================================
+app.get('/api/seo/opportunities', async (req, res) => {
+  const siteId = (req.query.siteId as string) || DEFAULT_SITE_ID;
+  const seedTopic = req.query.seedTopic as string | undefined;
+  try {
+    const opps = await discoverKeywordOpportunities(siteId, seedTopic);
+    res.json({ opportunities: opps });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/seo/check-duplication', (req, res) => {
+  const { siteId = DEFAULT_SITE_ID, title, keyword, searchIntent, content } = req.body;
+  if (!title) return res.status(400).json({ error: 'عنوان الزامی است' });
+  const result = checkDuplication({ siteId, title, keyword, searchIntent, content });
+  res.json({ success: true, result });
+});
+
+app.get('/api/seo/competitors', async (req, res) => {
+  const siteId = (req.query.siteId as string) || DEFAULT_SITE_ID;
+  let comps = db.getCompetitors(siteId);
+  if (comps.length === 0) {
+    comps = await analyzeCompetitors(siteId);
+    db.saveCompetitors([...db.getCompetitors(), ...comps]);
+  }
+  res.json({ competitors: comps });
+});
+
+app.post('/api/seo/analyze-competitors', async (req, res) => {
+  const { siteId = DEFAULT_SITE_ID, customDomain } = req.body;
+  try {
+    const freshComps = await analyzeCompetitors(siteId, customDomain);
+    const existing = db.getCompetitors().filter((c) => c.siteId !== siteId);
+    db.saveCompetitors([...existing, ...freshComps]);
+    res.json({ success: true, competitors: freshComps });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// =============================================================
+// PART 7: CONTENT CALENDAR & TOPIC OPPORTUNITY PIPELINE
+// =============================================================
+app.get('/api/planner/topics', (req, res) => {
+  const siteId = (req.query.siteId as string) || DEFAULT_SITE_ID;
+  const topics = db.getTopics(siteId);
+  res.json({ topics });
+});
+
+app.post('/api/planner/topics', (req, res) => {
+  const {
+    siteId = DEFAULT_SITE_ID,
+    title,
+    primaryKeyword,
+    searchIntent = 'commercial',
+    contentType = 'guide',
+    priorityScore = 80,
+    estimatedDemand = 'Medium',
+    reason = ''
+  } = req.body;
+  if (!title) return res.status(400).json({ error: 'عنوان الزامی است' });
+
+  const newTopic = {
+    id: `topic-${Date.now()}`,
+    siteId,
+    title,
+    primaryKeyword: primaryKeyword || title,
+    secondaryKeywords: [],
+    searchIntent,
+    contentType,
+    lifecycle: 'IDEA',
+    priorityScore,
+    businessValue: 8,
+    trafficPotential: 8,
+    conversionPotential: 8,
+    contentGap: 8,
+    competitionLevel: 'Medium',
+    estimatedDemand,
+    targetAudience: 'مخاطبان هدف سایت',
+    reason,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString()
+  };
+
+  const topics = db.getTopics();
+  topics.unshift(newTopic);
+  db.saveTopics(topics);
+
+  res.json({ success: true, topic: newTopic });
+});
+
+app.put('/api/planner/topics/:id', (req, res) => {
+  const topicId = req.params.id;
+  const topics = db.getTopics();
+  const idx = topics.findIndex((t) => t.id === topicId);
+  if (idx === -1) return res.status(404).json({ error: 'موضوع یافت نشد' });
+
+  topics[idx] = {
+    ...topics[idx],
+    ...req.body,
+    updatedAt: new Date().toISOString()
+  };
+  db.saveTopics(topics);
+  res.json({ success: true, topic: topics[idx] });
+});
+
+app.delete('/api/planner/topics/:id', (req, res) => {
+  let topics = db.getTopics();
+  topics = topics.filter((t) => t.id !== req.params.id);
+  db.saveTopics(topics);
+  res.json({ success: true, message: 'موضوع حذف شد' });
+});
+
+// =============================================================
+// PART 10, 11, 32: ARTICLE GENERATION & DIFFERENCE ENGINE API
+// =============================================================
+app.post('/api/ai/generate-article', async (req, res) => {
+  try {
+    const result = await generateArticleWithDifferenceEngine(req.body);
+    res.json({ success: true, ...result });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// =============================================================
+// PART 12-21: VISUAL ASSETS & NOVELTY ENGINE API
+// =============================================================
+app.get('/api/ai/visual-assets', (req, res) => {
+  const siteId = (req.query.siteId as string) || DEFAULT_SITE_ID;
+  const articleId = req.query.articleId as string | undefined;
+  let images = db.getImages(siteId);
+  if (articleId) {
+    images = images.filter((img) => String(img.articleId) === String(articleId));
+  }
+  res.json({ images });
+});
+
+app.post('/api/ai/visual-assets', async (req, res) => {
+  try {
+    const result = await generateVisualAsset(req.body);
+    res.json(result);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/ai/visual-assets/:id/reject', async (req, res) => {
+  const imageId = req.params.id;
+  const { reason, userInstructions, siteId = DEFAULT_SITE_ID } = req.body;
+
+  const images = db.getImages();
+  const targetIdx = images.findIndex((img) => img.imageId === imageId);
+  if (targetIdx >= 0) {
+    images[targetIdx].status = 'rejected';
+    images[targetIdx].rejectionReason = reason;
+    db.saveImages(images);
+  }
+
+  try {
+    const fresh = await generateVisualAsset({
+      siteId,
+      imageType: images[targetIdx]?.imageType || 'HERO',
+      title: images[targetIdx]?.semanticDescription || 'تجهیزات کمپینگ',
+      userInstructions,
+      rejectionFeedback: {
+        reason: reason || 'کاربر تصویر را رد کرد',
+        previousImageId: imageId
+      }
+    });
+    res.json({ success: true, ...fresh, message: 'تصویر جایگزین با زاویه و ترکیب‌بندی اصلاح‌شده آماده شد.' });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
 
 // Setup Vite or Serve Static Files
 async function startServer() {

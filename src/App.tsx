@@ -6,12 +6,109 @@ import PostPreviewModal from './components/PostPreviewModal';
 import AIPostGeneratorModal from './components/AIPostGeneratorModal';
 import SettingsModal from './components/SettingsModal';
 import ExplanationModal from './components/ExplanationModal';
-import { WPPost, WPCategory, SiteSettings } from './types';
+import SiteSelectorModal from './components/SiteSelectorModal';
+import SeoIntelligenceCenter from './components/SeoIntelligenceCenter';
+import ContentPlannerCalendar from './components/ContentPlannerCalendar';
+import VisualAssetStudio from './components/VisualAssetStudio';
+import { WPPost, WPCategory, SiteSettings, ManagedSite, KeywordOpportunity } from './types';
+import { normalizePost } from './utils/postUtils';
 
 const STORAGE_KEY_SETTINGS = 'madani_blog_settings';
 const STORAGE_KEY_LOCAL_POSTS = 'madani_local_posts';
+const STORAGE_KEY_ACTIVE_SITE_ID = 'madani_active_site_id';
+
+const DEFAULT_SITE: ManagedSite = {
+  id: 'site-madanicamp',
+  name: 'مدنی کمپ',
+  url: 'https://madanicamp.com',
+  description: 'مرجع تخصصی تجهیزات کوهنوردی، کمپینگ، صخره‌نوردی و سفرهای ماجراجویانه در ایران',
+  language: 'fa',
+  wordpress: {
+    baseUrl: 'https://madanicamp.com',
+    username: '',
+    applicationPassword: '',
+    hasPassword: false
+  },
+  brand: {
+    name: 'مدنی کمپ',
+    description: 'مرجع تجهیزات کوهنوردی و طبیعت‌گردی',
+    primaryColor: '#059669',
+    secondaryColor: '#0d9488'
+  },
+  seo: {
+    domain: 'madanicamp.com',
+    targetCountry: 'IR',
+    targetLanguage: 'fa',
+    targetAudience: 'طبیعت‌گردان و کوهنوردان'
+  },
+  content: {
+    tone: 'practical',
+    topics: ['چادر کوهنوردی', 'کیسه خواب', 'کوله پشتی', 'پوتین کوهنوردی', 'سرشعله و ظروف کمپ', 'کیت بقا'],
+    excludedTopics: []
+  },
+  profile: {
+    niche: 'تجهیزات و راهنماهای کاربردی کمپینگ و کوهنوردی',
+    audience: ['کوهنوردان نیمه‌حرفه‌ای و حرفه‌ای', 'طبیعت‌گردان آخر هفته', 'آفرودرها و کمپرها'],
+    mainTopics: ['چادر', 'کیسه خواب', 'کوله پشتی', 'پوتین'],
+    subTopics: ['وزن کوله', 'دمای کامفورت', 'ضدآب سازی', 'کمپ زمستانه'],
+    products: ['کیسه خواب پر', 'چادر ۲ نفره', 'پوتین لوفا', 'کوله ۶۵ لیتری'],
+    categories: ['مقالات', 'راهنمای خرید', 'بررسی تجهیزات'],
+    contentStyle: 'جامع، همراه با تصویر و نکات تجربی',
+    brandVoice: 'فنی، تجربی، مورد اعتماد و صمیمی',
+    existingContentCount: 3,
+    contentClusters: [
+      {
+        id: 'cluster-tents',
+        name: 'چادر و سرپناه کمپینگ',
+        pillarTopic: 'راهنمای جامع انتخاب و خرید چادر کوهنوردی و کمپینگ',
+        existingArticlesCount: 3,
+        missingArticlesCount: 5,
+        topics: [
+          { title: 'تفاوت چادر اتوماتیک و عصایی', keyword: 'چادر اتوماتیک کمپینگ', status: 'existing' },
+          { title: 'چادر ۴ فصل کوهنوردی در باد شدید', keyword: 'چادر ۴ فصل کوهنوردی', status: 'missing' },
+          { title: 'نحوه تمیز کردن و آب‌بندی درز چادر', keyword: 'آب بندی چادر کوهنوردی', status: 'missing' }
+        ]
+      },
+      {
+        id: 'cluster-sleep',
+        name: 'سیستم خواب و استراحت',
+        pillarTopic: 'اصول خواب گرم در طبیعت و انتخاب کیسه خواب',
+        existingArticlesCount: 2,
+        missingArticlesCount: 4,
+        topics: [
+          { title: 'راهنمای خرید کیسه خواب برای فصول سرد', keyword: 'کیسه خواب کوهنوردی', status: 'existing' },
+          { title: 'زیرانداز بادی یا فومی؟ مقایسه R-Value', keyword: 'زیرانداز کیسه خواب', status: 'missing' }
+        ]
+      }
+    ],
+    contentGaps: [
+      {
+        id: 'gap-winter-survival',
+        topic: 'تجهیزات بقا در صعود زمستانه',
+        competitorsCovering: 2,
+        siteCoverage: 0,
+        businessValue: 9,
+        trafficPotential: 8,
+        gapScore: 92,
+        reason: 'تقاضای بالا در فصل زمستان و بهار بدون مقاله اختصاصی در سایت'
+      }
+    ],
+    lastAnalyzedAt: new Date().toISOString()
+  },
+  createdAt: new Date().toISOString(),
+  updatedAt: new Date().toISOString()
+};
 
 export default function App() {
+  // Navigation View: 'posts' | 'seo' | 'planner' | 'visuals'
+  const [currentView, setCurrentView] = useState<'posts' | 'seo' | 'planner' | 'visuals'>('posts');
+
+  // Sites state
+  const [sites, setSites] = useState<ManagedSite[]>([DEFAULT_SITE]);
+  const [activeSiteId, setActiveSiteId] = useState<string>(() => {
+    return localStorage.getItem(STORAGE_KEY_ACTIVE_SITE_ID) || 'site-madanicamp';
+  });
+
   const [posts, setPosts] = useState<WPPost[]>([]);
   const [categories, setCategories] = useState<WPCategory[]>([]);
   const [siteStatus, setSiteStatus] = useState<{
@@ -34,6 +131,15 @@ export default function App() {
   const [isAIModalOpen, setIsAIModalOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isExplanationOpen, setIsExplanationOpen] = useState(false);
+  const [isSiteSelectorOpen, setIsSiteSelectorOpen] = useState(false);
+
+  // AI Modal Prefill State
+  const [aiModalPrefill, setAiModalPrefill] = useState<{
+    topic?: string;
+    keyword?: string;
+    intent?: string;
+    oppId?: string;
+  }>({});
 
   // Settings
   const [settings, setSettings] = useState<SiteSettings>(() => {
@@ -49,28 +155,49 @@ export default function App() {
     };
   });
 
+  // Fetch sites list from server
+  const fetchSites = async () => {
+    try {
+      const res = await fetch('/api/sites');
+      const data = await res.json();
+      if (data.sites && Array.isArray(data.sites) && data.sites.length > 0) {
+        setSites(data.sites);
+      }
+    } catch (e) {
+      console.warn('Failed to load sites:', e);
+    }
+  };
+
+  useEffect(() => {
+    fetchSites();
+  }, []);
+
+  const activeSite = sites.find((s) => s.id === activeSiteId) || sites[0] || DEFAULT_SITE;
+
   // Fetch status and posts
   const fetchAllData = async (forceRefresh = false) => {
     setIsLoading(true);
     try {
+      const targetUrl = activeSite.url || settings.siteUrl;
+
       // 1. Status
-      const statusRes = await fetch(`/api/wp/status?siteUrl=${encodeURIComponent(settings.siteUrl)}`);
+      const statusRes = await fetch(`/api/wp/status?siteUrl=${encodeURIComponent(targetUrl)}`);
       if (statusRes.ok) {
         const sData = await statusRes.json();
         setSiteStatus(sData);
       }
 
       // 2. Categories
-      const catRes = await fetch(`/api/wp/categories?siteUrl=${encodeURIComponent(settings.siteUrl)}`);
+      const catRes = await fetch(`/api/wp/categories?siteUrl=${encodeURIComponent(targetUrl)}`);
       if (catRes.ok) {
         const cData = await catRes.json();
         if (cData.categories) setCategories(cData.categories);
       }
 
-      // 3. Posts (Include credentials if configured to fetch remote drafts too)
+      // 3. Posts
       const queryParams = new URLSearchParams({
         refresh: forceRefresh ? 'true' : 'false',
-        siteUrl: settings.siteUrl,
+        siteUrl: targetUrl,
         ...(settings.username ? { username: settings.username } : {}),
         ...(settings.appPassword ? { appPassword: settings.appPassword } : {})
       });
@@ -102,7 +229,7 @@ export default function App() {
           }
         } catch {}
 
-        setPosts(serverPosts);
+        setPosts(serverPosts.map(normalizePost));
       }
     } catch (err) {
       console.error('Data fetch error:', err);
@@ -113,7 +240,44 @@ export default function App() {
 
   useEffect(() => {
     fetchAllData();
-  }, [settings.siteUrl, settings.username, settings.appPassword]);
+  }, [activeSite.url, settings.username, settings.appPassword]);
+
+  const handleSelectSite = (siteId: string) => {
+    setActiveSiteId(siteId);
+    try {
+      localStorage.setItem(STORAGE_KEY_ACTIVE_SITE_ID, siteId);
+    } catch {}
+    const chosen = sites.find((s) => s.id === siteId);
+    if (chosen) {
+      setSettings((prev) => ({
+        ...prev,
+        siteUrl: chosen.url,
+        username: chosen.wordpress?.username || '',
+        appPassword: chosen.wordpress?.applicationPassword || ''
+      }));
+    }
+  };
+
+  const handleSiteAdded = (newSite: ManagedSite) => {
+    setSites((prev) => [...prev, newSite]);
+    handleSelectSite(newSite.id);
+  };
+
+  const handleSiteUpdated = (updatedSite: ManagedSite) => {
+    setSites((prev) => prev.map((s) => (s.id === updatedSite.id ? updatedSite : s)));
+  };
+
+  const handleSiteDeleted = async (siteId: string) => {
+    try {
+      await fetch(`/api/sites/${siteId}`, { method: 'DELETE' });
+      setSites((prev) => prev.filter((s) => s.id !== siteId));
+      if (activeSiteId === siteId) {
+        handleSelectSite('site-madanicamp');
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  };
 
   const handleSaveSettings = (newSettings: SiteSettings) => {
     setSettings(newSettings);
@@ -123,14 +287,16 @@ export default function App() {
   };
 
   const handleSavePost = async (updatedPost: WPPost) => {
+    const cleanPost = normalizePost(updatedPost);
+
     setPosts((prev) => {
-      const exists = prev.findIndex((p) => p.id === updatedPost.id);
+      const exists = prev.findIndex((p) => p.id === cleanPost.id);
       let nextList: WPPost[];
       if (exists >= 0) {
         nextList = [...prev];
-        nextList[exists] = updatedPost;
+        nextList[exists] = cleanPost;
       } else {
-        nextList = [updatedPost, ...prev];
+        nextList = [cleanPost, ...prev];
       }
 
       // Persist local posts
@@ -142,16 +308,16 @@ export default function App() {
       return nextList;
     });
 
-    if (editingPost && editingPost.id === updatedPost.id) {
-      setEditingPost(updatedPost);
+    if (editingPost && editingPost.id === cleanPost.id) {
+      setEditingPost(cleanPost);
     }
 
-    // Sync to server memory so it persists across refreshes
+    // Sync to server memory
     try {
       await fetch('/api/wp/save-draft', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ post: updatedPost })
+        body: JSON.stringify({ post: cleanPost, siteId: activeSite.id })
       });
     } catch (e) {
       console.warn('Could not sync draft to server memory:', e);
@@ -180,7 +346,7 @@ export default function App() {
   };
 
   const handlePostGeneratedFromAI = (partialPost: Partial<WPPost>) => {
-    const newPost: WPPost = {
+    const rawPost: WPPost = {
       id: partialPost.id || `ai-draft-${Date.now()}`,
       date: new Date().toISOString(),
       slug: partialPost.slug || 'new-camping-article',
@@ -193,13 +359,17 @@ export default function App() {
       category_names: partialPost.category_names || ['مقالات'],
       tags: [],
       tag_names: partialPost.tag_names || ['مدنی کمپ', 'کمپینگ'],
-      author_name: 'مدنی کمپ',
+      author_name: activeSite.name,
       is_local: true,
-      local_updated_at: new Date().toISOString()
+      local_updated_at: new Date().toISOString(),
+      versions: partialPost.versions
     };
+
+    const newPost = normalizePost(rawPost);
 
     handleSavePost(newPost);
     setEditingPost(newPost);
+    setCurrentView('posts');
   };
 
   const handleCreateNewPost = () => {
@@ -216,49 +386,159 @@ export default function App() {
       category_names: ['مقالات'],
       tags: [],
       tag_names: [],
-      author_name: 'مدنی کمپ',
+      author_name: activeSite.name,
       is_local: true
     };
     setEditingPost(blankPost);
+    setCurrentView('posts');
+  };
+
+  // Launch AI generator from SEO Center or Planner
+  const handleSelectTopicForGeneration = (
+    topic: string,
+    keyword: string,
+    intent: string,
+    oppId?: string
+  ) => {
+    setAiModalPrefill({ topic, keyword, intent, oppId });
+    setIsAIModalOpen(true);
+  };
+
+  const handleAddTopicToPlanner = async (opp: KeywordOpportunity) => {
+    try {
+      await fetch('/api/planner/topics', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          siteId: activeSite.id,
+          title: opp.topic,
+          primaryKeyword: opp.keyword,
+          searchIntent: opp.searchIntent,
+          reason: opp.reason
+        })
+      });
+      // Switch view to planner to show added item
+      setCurrentView('planner');
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const handleApplyImageToPost = (imageUrl: string) => {
+    if (editingPost) {
+      const updated = { ...editingPost, featured_media_url: imageUrl };
+      handleSavePost(updated);
+      setCurrentView('posts');
+    } else {
+      // Create new draft with this image
+      const newPost: WPPost = {
+        id: `draft-${Date.now()}`,
+        date: new Date().toISOString(),
+        slug: '',
+        status: 'local_draft',
+        title: { rendered: 'پیش‌نویس جدید با تصویر شاخص' },
+        content: { rendered: '' },
+        excerpt: { rendered: '' },
+        featured_media_url: imageUrl,
+        categories: [1],
+        category_names: ['مقالات'],
+        tags: [],
+        tag_names: [],
+        author_name: activeSite.name,
+        is_local: true
+      };
+      setEditingPost(newPost);
+      setCurrentView('posts');
+    }
   };
 
   return (
     <div className="min-h-screen bg-stone-50 text-stone-900 flex flex-col font-sans selection:bg-emerald-200 selection:text-emerald-900">
-      {/* Header */}
+      {/* Header with Site Switcher & View Tabs */}
       <Header
         siteStatus={siteStatus}
         isLoading={isLoading}
         onRefresh={() => fetchAllData(true)}
-        onOpenAIModal={() => setIsAIModalOpen(true)}
+        onOpenAIModal={() => {
+          setAiModalPrefill({});
+          setIsAIModalOpen(true);
+        }}
         onOpenSettings={() => setIsSettingsOpen(true)}
         onOpenExplanation={() => setIsExplanationOpen(true)}
         onCreateNewPost={handleCreateNewPost}
+        activeSite={activeSite}
+        onOpenSiteSelector={() => setIsSiteSelectorOpen(true)}
+        currentView={currentView}
+        onChangeView={(view) => {
+          setCurrentView(view);
+          if (view !== 'posts') {
+            setEditingPost(null);
+          }
+        }}
       />
 
-      {/* Main workspace */}
-      <main className="flex-1">
-        {editingPost ? (
-          <PostEditor
-            post={editingPost}
-            categories={categories}
-            settings={settings}
-            onSave={handleSavePost}
-            onBack={() => setEditingPost(null)}
+      {/* Main Workspace based on View */}
+      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6">
+        {currentView === 'posts' && (
+          editingPost ? (
+            <PostEditor
+              post={editingPost}
+              categories={categories}
+              settings={settings}
+              onSave={handleSavePost}
+              onBack={() => setEditingPost(null)}
+            />
+          ) : (
+            <PostList
+              posts={posts}
+              categories={categories}
+              onSelectPost={(post) => setSelectedPostForPreview(post)}
+              onEditPost={(post) => setEditingPost(post)}
+              onCreateNew={handleCreateNewPost}
+              onOpenAI={() => {
+                setAiModalPrefill({});
+                setIsAIModalOpen(true);
+              }}
+              onDeletePost={handleDeletePost}
+            />
+          )
+        )}
+
+        {currentView === 'seo' && (
+          <SeoIntelligenceCenter
+            activeSite={activeSite}
+            onSelectTopicForGeneration={handleSelectTopicForGeneration}
+            onAddTopicToPlanner={handleAddTopicToPlanner}
           />
-        ) : (
-          <PostList
-            posts={posts}
-            categories={categories}
-            onSelectPost={(post) => setSelectedPostForPreview(post)}
-            onEditPost={(post) => setEditingPost(post)}
-            onCreateNew={handleCreateNewPost}
-            onOpenAI={() => setIsAIModalOpen(true)}
-            onDeletePost={handleDeletePost}
+        )}
+
+        {currentView === 'planner' && (
+          <ContentPlannerCalendar
+            activeSite={activeSite}
+            onSelectTopicForGeneration={handleSelectTopicForGeneration}
+          />
+        )}
+
+        {currentView === 'visuals' && (
+          <VisualAssetStudio
+            activeSite={activeSite}
+            onApplyImageToPost={handleApplyImageToPost}
           />
         )}
       </main>
 
       {/* Modals */}
+      <SiteSelectorModal
+        isOpen={isSiteSelectorOpen}
+        onClose={() => setIsSiteSelectorOpen(false)}
+        sites={sites}
+        activeSiteId={activeSiteId}
+        onSelectSite={handleSelectSite}
+        onSiteAdded={handleSiteAdded}
+        onSiteUpdated={handleSiteUpdated}
+        onSiteDeleted={handleSiteDeleted}
+      />
+
       <PostPreviewModal
         post={selectedPostForPreview}
         isOpen={Boolean(selectedPostForPreview)}
@@ -266,13 +546,22 @@ export default function App() {
         onEdit={(post) => {
           setSelectedPostForPreview(null);
           setEditingPost(post);
+          setCurrentView('posts');
         }}
       />
 
       <AIPostGeneratorModal
         isOpen={isAIModalOpen}
-        onClose={() => setIsAIModalOpen(false)}
+        onClose={() => {
+          setIsAIModalOpen(false);
+          setAiModalPrefill({});
+        }}
         onPostGenerated={handlePostGeneratedFromAI}
+        activeSite={activeSite}
+        initialTopic={aiModalPrefill.topic}
+        initialKeyword={aiModalPrefill.keyword}
+        initialIntent={aiModalPrefill.intent}
+        oppId={aiModalPrefill.oppId}
       />
 
       <SettingsModal

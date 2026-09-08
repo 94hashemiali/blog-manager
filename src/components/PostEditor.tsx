@@ -6,6 +6,7 @@ import {
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import { WPPost, WPCategory, SiteSettings } from '../types';
+import { extractString } from '../utils/postUtils';
 import AutoSeoAdvisor from './AutoSeoAdvisor';
 import AIWritingStudio from './AIWritingStudio';
 
@@ -24,10 +25,10 @@ export default function PostEditor({
   onSave,
   onBack
 }: PostEditorProps) {
-  const [title, setTitle] = useState(post.title.rendered || '');
+  const [title, setTitle] = useState(extractString(post.title, ''));
   const [slug, setSlug] = useState(post.slug || '');
-  const [excerpt, setExcerpt] = useState(post.excerpt?.rendered || '');
-  const [content, setContent] = useState(post.content.rendered || '');
+  const [excerpt, setExcerpt] = useState(extractString(post.excerpt, ''));
+  const [content, setContent] = useState(extractString(post.content, ''));
   const [featuredImage, setFeaturedImage] = useState(post.featured_media_url || '');
   const [selectedCategory, setSelectedCategory] = useState<string>(
     post.category_names?.[0] || 'مقالات'

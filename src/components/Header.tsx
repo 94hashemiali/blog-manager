@@ -1,4 +1,5 @@
-import { Mountain, Sparkles, RefreshCw, Settings, HelpCircle, ExternalLink, Globe2, Wifi, WifiOff } from 'lucide-react';
+import { Mountain, Sparkles, RefreshCw, Settings, HelpCircle, ExternalLink, Globe2, Wifi, WifiOff, Layers, TrendingUp, Calendar, Camera, Plus, ChevronDown } from 'lucide-react';
+import { ManagedSite } from '../types';
 
 interface HeaderProps {
   siteStatus: {
@@ -14,6 +15,10 @@ interface HeaderProps {
   onOpenSettings: () => void;
   onOpenExplanation: () => void;
   onCreateNewPost: () => void;
+  activeSite?: ManagedSite;
+  onOpenSiteSelector?: () => void;
+  currentView?: 'posts' | 'seo' | 'planner' | 'visuals';
+  onChangeView?: (view: 'posts' | 'seo' | 'planner' | 'visuals') => void;
 }
 
 export default function Header({
@@ -23,44 +28,51 @@ export default function Header({
   onOpenAIModal,
   onOpenSettings,
   onOpenExplanation,
-  onCreateNewPost
+  onCreateNewPost,
+  activeSite,
+  onOpenSiteSelector,
+  currentView = 'posts',
+  onChangeView
 }: HeaderProps) {
+  const siteName = activeSite?.name || 'مدنی کمپ';
+  const siteUrl = activeSite?.url || 'https://madanicamp.com';
+  const primaryColor = activeSite?.brand?.primaryColor || '#059669';
+
   return (
     <header className="bg-white border-b border-stone-200 sticky top-0 z-30 shadow-xs">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between h-16 sm:h-20">
           
-          {/* Logo & Site Title */}
+          {/* Logo & Site Switcher Dropdown */}
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-2xl bg-gradient-to-br from-emerald-600 to-teal-800 text-white flex items-center justify-center shadow-md shadow-emerald-900/10">
-              <Mountain className="w-6 h-6 sm:w-7 sm:h-7" />
-            </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <h1 className="text-base sm:text-xl font-extrabold text-stone-900 tracking-tight">
-                  مدنی کمپ
-                </h1>
-                <span className="text-xs bg-emerald-100 text-emerald-800 font-semibold px-2 py-0.5 rounded-md">
-                  Blog Project
-                </span>
+            <button
+              onClick={onOpenSiteSelector}
+              className="flex items-center gap-2.5 p-1.5 -m-1.5 rounded-xl hover:bg-stone-100 transition-colors text-right group"
+              title="تغییر یا مدیریت سایت‌ها"
+            >
+              <div
+                className="w-10 h-10 sm:w-11 sm:h-11 rounded-2xl text-white flex items-center justify-center shadow-md font-bold text-base transition-transform group-hover:scale-105"
+                style={{ backgroundColor: primaryColor }}
+              >
+                <Mountain className="w-5 h-5 sm:w-6 sm:h-6" />
               </div>
-              <div className="flex items-center gap-2 mt-0.5">
-                <a
-                  href="https://madanicamp.com"
-                  target="_blank"
-                  rel="noreferrer"
-                  className="text-xs text-stone-500 hover:text-emerald-700 flex items-center gap-1 transition-colors"
-                >
-                  <Globe2 className="w-3.5 h-3.5" />
-                  <span className="font-mono text-[11px]">madanicamp.com</span>
-                  <ExternalLink className="w-3 h-3" />
-                </a>
+              <div>
+                <div className="flex items-center gap-1.5">
+                  <h1 className="text-base sm:text-lg font-extrabold text-stone-900 tracking-tight">
+                    {siteName}
+                  </h1>
+                  <ChevronDown className="w-3.5 h-3.5 text-stone-400 group-hover:text-stone-700 transition-colors" />
+                </div>
+                <div className="flex items-center gap-1 text-[11px] text-stone-500">
+                  <Globe2 className="w-3 h-3 text-stone-400" />
+                  <span className="font-mono">{siteUrl.replace(/^https?:\/\//, '')}</span>
+                </div>
               </div>
-            </div>
+            </button>
           </div>
 
           {/* Center Connection Status Pill */}
-          <div className="hidden md:flex items-center gap-2">
+          <div className="hidden lg:flex items-center gap-2">
             <div 
               className={`flex items-center gap-2 px-3 py-1.5 rounded-full border text-xs font-medium ${
                 siteStatus.connected
@@ -108,6 +120,14 @@ export default function Header({
           {/* Action Buttons */}
           <div className="flex items-center gap-2">
             <button
+              onClick={onCreateNewPost}
+              className="hidden sm:flex px-3 py-2 text-stone-700 hover:text-stone-900 hover:bg-stone-100 rounded-xl transition-colors border border-stone-200 items-center gap-1.5 text-xs font-semibold"
+            >
+              <Plus className="w-4 h-4 text-emerald-600" />
+              <span>مطلب جدید</span>
+            </button>
+
+            <button
               onClick={onRefresh}
               disabled={isLoading}
               className="p-2 sm:px-3 sm:py-2 text-stone-600 hover:text-stone-900 hover:bg-stone-100 rounded-xl transition-colors border border-stone-200 flex items-center gap-1.5 text-xs font-medium"
@@ -136,6 +156,59 @@ export default function Header({
           </div>
 
         </div>
+
+        {/* Navigation Tabs Bar */}
+        {onChangeView && (
+          <nav className="flex items-center gap-1 overflow-x-auto py-2.5 border-t border-stone-100 text-xs font-bold scrollbar-none">
+            <button
+              onClick={() => onChangeView('posts')}
+              className={`px-3.5 py-1.5 rounded-lg flex items-center gap-1.5 transition-colors whitespace-nowrap ${
+                currentView === 'posts'
+                  ? 'bg-emerald-50 text-emerald-800 border border-emerald-200 shadow-2xs'
+                  : 'text-stone-600 hover:bg-stone-100 hover:text-stone-900'
+              }`}
+            >
+              <Layers className="w-4 h-4" />
+              <span>مقالات و پست‌ها (Posts)</span>
+            </button>
+
+            <button
+              onClick={() => onChangeView('seo')}
+              className={`px-3.5 py-1.5 rounded-lg flex items-center gap-1.5 transition-colors whitespace-nowrap ${
+                currentView === 'seo'
+                  ? 'bg-emerald-50 text-emerald-800 border border-emerald-200 shadow-2xs'
+                  : 'text-stone-600 hover:bg-stone-100 hover:text-stone-900'
+              }`}
+            >
+              <TrendingUp className="w-4 h-4 text-emerald-600" />
+              <span>استراتژی سئو و رقبا (SEO Center)</span>
+            </button>
+
+            <button
+              onClick={() => onChangeView('planner')}
+              className={`px-3.5 py-1.5 rounded-lg flex items-center gap-1.5 transition-colors whitespace-nowrap ${
+                currentView === 'planner'
+                  ? 'bg-emerald-50 text-emerald-800 border border-emerald-200 shadow-2xs'
+                  : 'text-stone-600 hover:bg-stone-100 hover:text-stone-900'
+              }`}
+            >
+              <Calendar className="w-4 h-4 text-emerald-600" />
+              <span>تقویم و چرخه محتوا (Planner)</span>
+            </button>
+
+            <button
+              onClick={() => onChangeView('visuals')}
+              className={`px-3.5 py-1.5 rounded-lg flex items-center gap-1.5 transition-colors whitespace-nowrap ${
+                currentView === 'visuals'
+                  ? 'bg-emerald-50 text-emerald-800 border border-emerald-200 shadow-2xs'
+                  : 'text-stone-600 hover:bg-stone-100 hover:text-stone-900'
+              }`}
+            >
+              <Camera className="w-4 h-4 text-emerald-600" />
+              <span>استودیوی تصاویر هوشمند (Visuals)</span>
+            </button>
+          </nav>
+        )}
       </div>
     </header>
   );

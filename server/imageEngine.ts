@@ -766,20 +766,37 @@ export function selectVisualStrategy(
 // STEP 4: COMPOSITION-FIRST SHOT BRIEF & IMAGE PROMPT GENERATOR
 // -------------------------------------------------------------
 
+export interface ImagePromptVariables {
+  visualStyle?: string;
+  brandColorPalette?: {
+    primaryColor?: string;
+    secondaryColor?: string;
+    brandName?: string;
+    colorApplication?: string;
+  };
+  natureElements?: string;
+  lightingAtmosphere?: string;
+  technicalGearMaterials?: string[];
+  cameraOptics?: string;
+  negativeConstraints?: string[];
+}
+
 export function buildProfessionalShotBrief(
   concept: VisualConcept,
   strategy: VisualStrategy,
   differencePlan?: DifferencePlan,
-  referenceImageProvided = false
+  referenceImageProvided = false,
+  promptVariables?: ImagePromptVariables
 ): string {
   // RULE: NEVER start with "cinematic", "photorealistic", "National Geographic", "8K".
   // Start directly with the physical scene description.
   const lines: string[] = [];
 
   // 1. Core Scene Opening
-  lines.push(
-    `Authentic editorial outdoor documentary photograph showing ${concept.whatIsShown}.`
-  );
+  const styleOpening = promptVariables?.visualStyle
+    ? `Authentic ${promptVariables.visualStyle} outdoor documentary photograph showing ${concept.whatIsShown}.`
+    : `Authentic editorial outdoor documentary photograph showing ${concept.whatIsShown}.`;
+  lines.push(styleOpening);
 
   // 2. Spatial Hierarchy & Subject Placement
   lines.push(
@@ -789,22 +806,47 @@ export function buildProfessionalShotBrief(
   );
 
   // 3. Camera Position, Perspective & Angle
+  const cameraSetting = promptVariables?.cameraOptics
+    ? `${strategy.shotType} with ${promptVariables.cameraOptics}`
+    : strategy.shotType;
   lines.push(
-    `Perspective & framing: ${strategy.shotType}. ` +
+    `Perspective & framing: ${cameraSetting}. ` +
     `Camera angle: ${strategy.cameraAngle}. ` +
     `Viewpoint: ${strategy.perspective}.`
   );
 
   // 4. Natural Lighting & Environmental Realism (Banned golden hour spam)
+  const lightingText = promptVariables?.lightingAtmosphere
+    ? `Lighting: ${promptVariables.lightingAtmosphere}.`
+    : `Lighting: ${strategy.lighting}.`;
+  const natureText = promptVariables?.natureElements
+    ? `Specific geography and terrain: ${promptVariables.natureElements}.`
+    : '';
+
   lines.push(
-    `Lighting: ${strategy.lighting}. ` +
-    `Atmosphere: Natural mountain daylight under plausible overcast or clear high-altitude skies, muted realistic colors, physically plausible shadows without neon or oversaturated color grading.`
+    `${lightingText} ${natureText} Atmosphere: Natural mountain daylight under plausible overcast or clear high-altitude skies, muted realistic colors, physically plausible shadows without neon or oversaturated color grading.`
   );
 
-  // 5. Equipment Realism & Physical Construction
-  if (concept.technicalDetails && concept.technicalDetails.length > 0) {
+  // 4.1 Brand Color Palette Integration (if provided)
+  if (promptVariables?.brandColorPalette) {
+    const { primaryColor, secondaryColor, brandName, colorApplication } = promptVariables.brandColorPalette;
+    const brandDesc = colorApplication
+      ? colorApplication
+      : `Subtle natural accents inspired by ${brandName || 'outdoor gear'}: earthy tones harmonized with ${primaryColor || 'forest green'} and ${secondaryColor || 'burnt amber'} highlights on straps, seam lines, or tent tie-downs, physically integrated into durable outdoor fabrics.`;
     lines.push(
-      `Technical gear accuracy: Display authentic mechanical construction—${concept.technicalDetails.join(', ')}. ` +
+      `Color harmony: ${brandDesc} Strictly avoid artificial neon or plastic sheen; keep dye saturation authentic to weathered technical fabrics.`
+    );
+  }
+
+  // 5. Equipment Realism & Physical Construction
+  const mergedTechnicalDetails = [
+    ...(concept.technicalDetails || []),
+    ...(promptVariables?.technicalGearMaterials || [])
+  ];
+  if (mergedTechnicalDetails.length > 0) {
+    const uniqueDetails = Array.from(new Set(mergedTechnicalDetails));
+    lines.push(
+      `Technical gear accuracy: Display authentic mechanical construction—${uniqueDetails.join(', ')}. ` +
       `Realistic fabric tension, natural material wrinkles, correct aluminum pole geometry, and physical contact with the ground.`
     );
   }
@@ -832,8 +874,11 @@ export function buildProfessionalShotBrief(
   }
 
   // 8. Strict Negative Constraints
+  const extraNegatives = promptVariables?.negativeConstraints?.length
+    ? `, ${promptVariables.negativeConstraints.join(', ')}`
+    : '';
   lines.push(
-    `Strict constraints: Absolutely no text, no watermarks, no Persian calligraphy, no English labels, no faux logos, no UI overlays, no CGI render aesthetics, no fantasy landscape, no oversaturated teal-and-orange filters, no floating objects.`
+    `Strict constraints: Absolutely no text, no watermarks, no Persian calligraphy, no English labels, no faux logos, no UI overlays, no CGI render aesthetics, no fantasy landscape, no oversaturated teal-and-orange filters, no floating objects${extraNegatives}.`
   );
 
   return lines.join(' ');
@@ -1042,6 +1087,7 @@ export interface GenerateMasterVisualParams {
   aspectRatio?: string;
   userFeedback?: string;
   userInstructions?: string;
+  promptVariables?: ImagePromptVariables;
   rejectionFeedback?: {
     reason: string;
     previousImageId?: string;
@@ -1077,6 +1123,7 @@ export async function generateMasterVisualAsset(
     aspectRatio = '16:9',
     userFeedback: rawFeedback,
     userInstructions,
+    promptVariables,
     rejectionFeedback,
     productReferenceImage,
     previousGenerations = [],
@@ -1114,12 +1161,15 @@ export async function generateMasterVisualAsset(
   );
 
   // 5. Build Composition-First Professional Shot Brief
-  const detailedPrompt = buildProfessionalShotBrief(
-    visualConcept,
-    strategy,
-    differencePlan,
-    Boolean(productReferenceImage)
-  );
+  const detailedPrompt = (passedPrompt && passedPrompt.trim().length > 40 && !forceNewStrategy)
+    ? passedPrompt.trim()
+    : buildProfessionalShotBrief(
+        visualConcept,
+        strategy,
+        differencePlan,
+        Boolean(productReferenceImage),
+        promptVariables
+      );
 
   // 6. Attempt Dedicated Gemini Image Synthesis
   let finalImageUrl: string | null = null;

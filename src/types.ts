@@ -282,6 +282,21 @@ export interface VisualBrief {
   negativeConstraints: string[];
 }
 
+export interface ImagePromptVariables {
+  visualStyle: string;
+  brandColorPalette: {
+    primaryColor: string;
+    secondaryColor: string;
+    brandName: string;
+    colorApplication: string;
+  };
+  natureElements: string;
+  lightingAtmosphere: string;
+  technicalGearMaterials: string[];
+  cameraOptics: string;
+  negativeConstraints?: string[];
+}
+
 export interface ImagePlanItem {
   type: ImageType;
   purpose: string;

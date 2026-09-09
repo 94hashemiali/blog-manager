@@ -264,7 +264,70 @@ export interface DuplicateCheckResult {
 // -------------------------------------------------------------
 // PART 12-21: VISUAL ASSETS & IMAGE NOVELTY ENGINE
 // -------------------------------------------------------------
-export type ImageType = 'HERO' | 'ARTICLE' | 'PRODUCT' | 'COMPARISON' | 'TUTORIAL';
+export type ImageType = 'HERO' | 'ARTICLE' | 'PRODUCT' | 'COMPARISON' | 'TUTORIAL' | 'DETAIL' | 'ENVIRONMENTAL';
+
+export type VisualStrategyId =
+  | 'environmental_editorial'
+  | 'human_action'
+  | 'product_in_context'
+  | 'product_detail'
+  | 'macro_detail'
+  | 'pov'
+  | 'overhead'
+  | 'ground_level'
+  | 'low_angle'
+  | 'side_profile'
+  | 'inside_equipment'
+  | 'flat_lay'
+  | 'technical_demonstration'
+  | 'controlled_comparison'
+  | 'step_by_step';
+
+export type FeedbackCode =
+  | 'too_generic'
+  | 'doesnt_match_article'
+  | 'wrong_subject'
+  | 'wrong_product'
+  | 'product_too_small'
+  | 'too_cinematic'
+  | 'too_artificial'
+  | 'wrong_environment'
+  | 'wrong_composition'
+  | 'anatomy_problem'
+  | 'equipment_problem'
+  | 'too_similar'
+  | 'other';
+
+export interface VisualIntent {
+  visualPurpose: string;
+  mainSubject: string;
+  secondarySubjects: string[];
+  action: string;
+  environment: string;
+  context: string;
+  importantDetails: string[];
+  humanPresence: 'none' | 'hands_only' | 'partial' | 'full_figure';
+  productImportance: 'dominant' | 'equal' | 'supporting';
+  technicalImportance: 'high' | 'medium' | 'low';
+  visualMessage: string;
+  thingsToAvoid: string[];
+}
+
+export interface CompositionPlan {
+  imageType: ImageType;
+  strategyId: VisualStrategyId | string;
+  subjectPlacement: string;
+  cameraHeight: string;
+  cameraAngle: string;
+  shotScale: string;
+  foreground: string;
+  midground: string;
+  background: string;
+  lighting: string;
+  depthOfField: string;
+  negativeSpace: string;
+  photographyStyle: string;
+}
 
 export interface VisualBrief {
   subject: string;
@@ -333,26 +396,36 @@ export interface StructuredArticleContext {
 }
 
 export interface VisualConcept {
-  whatIsShown: string;
-  whyItMatters: string;
-  primarySubject: string;
-  secondarySubjects: string[];
+  subject?: string;
   action: string;
   environment: string;
+  camera?: string;
+  composition?: string;
+  foreground?: string;
+  midground?: string;
+  background?: string;
+  lighting?: string;
+  materials?: string[];
   technicalDetails: string[];
-  compositionIdea: string;
+  whatIsShown?: string;
+  whyItMatters?: string;
+  primarySubject?: string;
+  secondarySubjects?: string[];
+  compositionIdea?: string;
 }
 
 export interface VisualStrategy {
   id: string;
   name: string;
-  category: ImageType;
+  nameFa?: string;
+  category?: ImageType;
   shotType: string;
   cameraAngle: string;
   lighting: string;
   perspective: string;
-  gearEmphasis: string;
+  gearEmphasis?: string;
   compositionPattern: string;
+  bestFor?: ImageType[];
 }
 
 export interface DifferencePlan {
@@ -363,20 +436,38 @@ export interface DifferencePlan {
 }
 
 export interface ImageQualityEvaluation {
-  relevance: number; // 1-10
-  realism: number; // 1-10
-  composition: number; // 1-10
-  subjectClarity?: number; // 1-10
-  equipmentAccuracy: number; // 1-10
-  humanAnatomy?: number; // 1-10
-  anatomy?: number; // 1-10
-  technicalAccuracy?: number; // 1-10
-  visualNovelty?: number; // 1-10
-  novelty?: number; // 1-10
-  editorialQuality?: number; // 1-10
-  overall: number; // 1-10
-  problems: string[];
+  overall: number;
+  articleRelevance?: number;
+  specificity?: number;
+  photographicRealism?: number;
+  composition: number;
+  technicalAccuracy?: number;
+  anatomy?: number;
+  genericness?: number;
+  novelty?: number;
+  relevance?: number;
+  realism?: number;
+  subjectClarity?: number;
+  equipmentAccuracy?: number;
+  humanAnatomy?: number;
+  visualNovelty?: number;
+  editorialQuality?: number;
+  visualClarity?: number;
+  issues?: string[];
+  problems?: string[];
   shouldRegenerate: boolean;
+  reason?: string;
+}
+
+export interface NoveltyEvaluation {
+  exactDuplicate: boolean;
+  sha256Match?: boolean;
+  perceptualSimilarity: number;
+  compositionSimilarity?: number;
+  semanticSimilarity: number;
+  noveltyScore: number;
+  isAcceptable: boolean;
+  rejectionReason?: string;
 }
 
 export interface ImageAsset {
@@ -384,29 +475,44 @@ export interface ImageAsset {
   imageId: string;
   siteId: string;
   articleId?: string | number;
+  lineageId?: string;
+  familyId?: string;
+  parentImageId?: string;
   type?: ImageType;
   imageType: ImageType;
   version?: number;
   generationVersion?: number;
   source?: 'gemini' | 'unsplash_fallback';
   prompt: string;
+  visualIntent?: VisualIntent;
   visualConcept?: VisualConcept;
+  compositionPlan?: CompositionPlan;
   visualBrief?: Record<string, any>;
   strategy?: VisualStrategy;
   differencePlan?: DifferencePlan;
   visualFingerprint?: string;
+  fingerprint?: Record<string, any>;
   perceptualHash: string;
-  semanticDescription: string;
+  hash?: string;
+  semanticDescription?: string;
   noveltyScore: number;
+  genericnessScore?: number;
+  noveltyEvaluation?: NoveltyEvaluation;
   quality?: ImageQualityEvaluation;
   createdAt: string;
   url: string;
   aspectRatio: string;
-  status: 'active' | 'candidate' | 'rejected';
+  status: 'active' | 'candidate' | 'rejected' | 'accepted';
   rejectionReason?: string;
   perspective?: string;
   referenceImageUrl?: string;
   isAiGenerated?: boolean;
+  modelUsed?: string;
+  attempts?: number;
+  issues?: string[];
+  persianCaption?: string;
+  persianTitle?: string;
+  userFeedback?: { code?: string; text?: string };
 }
 
 // -------------------------------------------------------------

@@ -9,6 +9,8 @@ import { checkDuplication } from './server/duplicationGuard.js';
 import { generateArticleWithDifferenceEngine } from './server/articleEngine.js';
 import { generateVisualAsset, generateMasterVisualAsset, generateArticleImagePlan } from './server/imageEngine.js';
 import { analyzeSiteIntelligence } from './server/siteIntelligence.js';
+import { resolveGeneratedImagePath } from './server/visual/storage.js';
+import { createVisualJob, updateVisualJob, getVisualJob } from './server/visual/jobs.js';
 
 dotenv.config();
 
@@ -1101,6 +1103,8 @@ app.post('/api/ai/generate-image', async (req, res) => {
       section,
       aspectRatio = '16:9',
       userFeedback,
+      userInstructions,
+      feedbackCode,
       productReferenceImage,
       previousGenerations,
       forceNewStrategy,
@@ -1127,11 +1131,17 @@ app.post('/api/ai/generate-image', async (req, res) => {
       prompt,
       section,
       aspectRatio,
-      userFeedback,
+      userFeedback: userFeedback || userInstructions,
+      userInstructions,
+      feedbackCode,
       productReferenceImage,
       previousGenerations,
       forceNewStrategy
     });
+
+    if (!result.success) {
+      return res.status(422).json(result);
+    }
 
     return res.json(result);
   } catch (err: any) {
@@ -1483,47 +1493,210 @@ app.get('/api/ai/visual-assets', (req, res) => {
   res.json({ images });
 });
 
+app.get('/api/media/generated/:filename', (req, res) => {
+  const filePath = resolveGeneratedImagePath(req.params.filename);
+  if (!filePath) {
+    return res.status(404).json({ error: 'تصویر یافت نشد' });
+  }
+  return res.sendFile(filePath);
+});
+
+app.get('/api/ai/visual-jobs/:id', (req, res) => {
+  const job = getVisualJob(req.params.id);
+  if (!job) return res.status(404).json({ error: 'Job not found' });
+  res.json(job);
+});
+
 app.post('/api/ai/visual-assets', async (req, res) => {
   try {
-    const result = await generateVisualAsset(req.body);
+    const body = req.body || {};
+    if (body.async) {
+      const job = createVisualJob(body.siteId || DEFAULT_SITE_ID);
+      res.json({ jobId: job.id, status: job.status, stage: job.stage });
+      generateVisualAsset({
+        ...body,
+        onStage: (stage: string, detail?: string) => {
+          updateVisualJob(job.id, { stage: stage as any, detail });
+        }
+      })
+        .then((result) => {
+          updateVisualJob(job.id, {
+            status: result.success ? 'COMPLETED' : 'FAILED',
+            result,
+            error: result.success ? undefined : result.message,
+            completedAt: new Date().toISOString(),
+            stage: 'finalizing'
+          });
+        })
+        .catch((err) => {
+          updateVisualJob(job.id, {
+            status: 'FAILED',
+            error: err.message,
+            completedAt: new Date().toISOString()
+          });
+        });
+      return;
+    }
+
+    const result = await generateVisualAsset(body);
+    if (!result.success) {
+      return res.status(422).json(result);
+    }
     res.json(result);
+  } catch (err: any) {
+    res.status(500).json({
+      success: false,
+      stage: 'image_generation',
+      errorCode: 'unhandled',
+      message: err.message,
+      retryable: true
+    });
+  }
+});
+
+function markImageStatus(imageId: string, status: string, reason?: string) {
+  const images = db.getImages();
+  const idx = images.findIndex((img) => img.id === imageId || img.imageId === imageId);
+  if (idx < 0) return null;
+  images[idx].status = status;
+  if (reason) images[idx].rejectionReason = reason;
+  db.saveImages(images);
+  return images[idx];
+}
+
+function parentArticleFromImage(targetImg: any) {
+  const snap = targetImg?.visualBrief?.articleSnapshot;
+  return {
+    title:
+      snap?.title ||
+      targetImg?.visualIntent?.context ||
+      targetImg?.visualConcept?.primarySubject ||
+      targetImg?.persianTitle ||
+      'تجهیزات فضای باز',
+    content: [
+      snap?.contentHint,
+      targetImg?.visualIntent?.visualMessage,
+      targetImg?.visualConcept?.whatIsShown,
+      ...(targetImg?.visualIntent?.importantDetails || [])
+    ]
+      .filter(Boolean)
+      .join('\n'),
+    primaryKeyword: snap?.primaryKeyword,
+    searchIntent: snap?.articleType
+  };
+}
+
+app.post('/api/ai/visual-assets/:id/accept', (req, res) => {
+  const target = markImageStatus(req.params.id, 'accepted');
+  if (!target) return res.status(404).json({ error: 'تصویر یافت نشد' });
+  res.json({ success: true, image: target });
+});
+
+app.post('/api/ai/visual-assets/:id/reject', async (req, res) => {
+  const imageId = req.params.id;
+  const { reason, userInstructions, siteId = DEFAULT_SITE_ID, feedbackCode, regenerate = true } = req.body;
+  const targetImg = markImageStatus(imageId, 'rejected', reason);
+  if (!targetImg) return res.status(404).json({ error: 'تصویر یافت نشد' });
+  if (!regenerate) {
+    return res.json({ success: true, image: targetImg });
+  }
+  try {
+    const article = parentArticleFromImage(targetImg);
+    const fresh = await generateVisualAsset({
+      siteId,
+      imageType: targetImg?.type || targetImg?.imageType || 'HERO',
+      title: article.title,
+      content: article.content,
+      article,
+      articleId: targetImg?.articleId,
+      userFeedback: userInstructions,
+      feedbackCode,
+      rejectionFeedback: {
+        reason: reason || 'کاربر تصویر را رد کرد',
+        previousImageId: imageId,
+        adjustments: userInstructions,
+        code: feedbackCode
+      },
+      previousGenerations: targetImg?.strategy?.id ? [targetImg.strategy.id] : [],
+      previousImageId: imageId,
+      familyId: targetImg?.familyId || targetImg?.lineageId,
+      forceNewStrategy: true,
+      regenerationMode: 'different_concept'
+    });
+    if (!fresh.success) return res.status(422).json(fresh);
+    res.json({ success: true, ...fresh, message: 'تصویر جایگزین با زاویه و استراتژی بصری نوین آماده شد.' });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
 });
 
-app.post('/api/ai/visual-assets/:id/reject', async (req, res) => {
-  const imageId = req.params.id;
-  const { reason, userInstructions, siteId = DEFAULT_SITE_ID } = req.body;
+app.post('/api/ai/visual-assets/:id/regenerate', async (req, res) => {
+  const targetImg = db.getImages().find((img) => img.id === req.params.id || img.imageId === req.params.id);
+  if (!targetImg) return res.status(404).json({ error: 'تصویر یافت نشد' });
+  const article = parentArticleFromImage(targetImg);
+  const result = await generateVisualAsset({
+    siteId: req.body.siteId || targetImg.siteId || DEFAULT_SITE_ID,
+    imageType: targetImg.type || targetImg.imageType || 'HERO',
+    title: article.title,
+    content: article.content,
+    article,
+    articleId: targetImg.articleId,
+    previousImageId: targetImg.id || targetImg.imageId,
+    familyId: targetImg.familyId || targetImg.lineageId,
+    regenerationMode: 'same_concept',
+    userFeedback: req.body.userInstructions,
+    feedbackCode: req.body.feedbackCode
+  });
+  if (!result.success) return res.status(422).json(result);
+  res.json(result);
+});
 
-  const images = db.getImages();
-  const targetIdx = images.findIndex((img) => img.id === imageId || img.imageId === imageId);
-  const targetImg = targetIdx >= 0 ? images[targetIdx] : null;
+app.post('/api/ai/visual-assets/:id/regenerate-differently', async (req, res) => {
+  const targetImg = db.getImages().find((img) => img.id === req.params.id || img.imageId === req.params.id);
+  if (!targetImg) return res.status(404).json({ error: 'تصویر یافت نشد' });
+  const article = parentArticleFromImage(targetImg);
+  const result = await generateVisualAsset({
+    siteId: req.body.siteId || targetImg.siteId || DEFAULT_SITE_ID,
+    imageType: targetImg.type || targetImg.imageType || 'HERO',
+    title: article.title,
+    content: article.content,
+    article,
+    articleId: targetImg.articleId,
+    previousImageId: targetImg.id || targetImg.imageId,
+    familyId: targetImg.familyId || targetImg.lineageId,
+    previousGenerations: targetImg.strategy?.id ? [targetImg.strategy.id] : [],
+    forceNewStrategy: true,
+    regenerationMode: 'different_concept',
+    userFeedback: req.body.userInstructions || req.body.reason,
+    feedbackCode: req.body.feedbackCode
+  });
+  if (!result.success) return res.status(422).json(result);
+  res.json(result);
+});
 
-  if (targetImg) {
-    targetImg.status = 'rejected';
-    targetImg.rejectionReason = reason;
-    db.saveImages(images);
-  }
-
-  try {
-    const fresh = await generateVisualAsset({
-      siteId,
-      imageType: targetImg?.type || targetImg?.imageType || 'HERO',
-      title: targetImg?.visualConcept?.primarySubject || targetImg?.semanticDescription || targetImg?.persianTitle || 'تجهیزات کوهنوردی',
-      userFeedback: userInstructions,
-      rejectionFeedback: {
-        reason: reason || 'کاربر تصویر را رد کرد',
-        previousImageId: imageId,
-        adjustments: userInstructions
-      },
-      previousGenerations: targetImg?.strategy?.id ? [targetImg.strategy.id] : [],
-      forceNewStrategy: true
-    });
-    res.json({ success: true, ...fresh, message: 'تصویر جایگزین با زاویه و استراتژی بصری نوین آماده شد.' });
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
-  }
+app.post('/api/ai/visual-assets/:id/feedback', async (req, res) => {
+  const targetImg = db.getImages().find((img) => img.id === req.params.id || img.imageId === req.params.id);
+  if (!targetImg) return res.status(404).json({ error: 'تصویر یافت نشد' });
+  const article = parentArticleFromImage(targetImg);
+  const result = await generateVisualAsset({
+    siteId: req.body.siteId || targetImg.siteId || DEFAULT_SITE_ID,
+    imageType: targetImg.type || targetImg.imageType || 'HERO',
+    title: article.title,
+    content: article.content,
+    article,
+    articleId: targetImg.articleId,
+    previousImageId: targetImg.id || targetImg.imageId,
+    familyId: targetImg.familyId || targetImg.lineageId,
+    previousGenerations: targetImg.strategy?.id ? [targetImg.strategy.id] : [],
+    forceNewStrategy: true,
+    regenerationMode: req.body.feedbackCode === 'too_generic' || req.body.feedbackCode === 'too_similar'
+      ? 'different_concept'
+      : 'same_concept',
+    userFeedback: req.body.text || req.body.reason,
+    feedbackCode: req.body.feedbackCode
+  });
+  if (!result.success) return res.status(422).json(result);
+  res.json(result);
 });
 
 // Setup Vite or Serve Static Files

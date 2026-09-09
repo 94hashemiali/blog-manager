@@ -269,13 +269,13 @@ export default function PostEditor({
         })
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'خطا در ساخت تصویر');
+      if (!res.ok) throw new Error(data.message || data.error || 'خطا در ساخت تصویر');
 
-      if (data.imageUrl) {
+      if (data.imageUrl && data.success !== false) {
         setFeaturedImage(data.imageUrl);
         setLastGeneratedImageMeta(data);
         if (Array.isArray(data.variations)) {
-          setQuickImageVariations(data.variations);
+          setQuickImageVariations(data.variations.filter((v: any) => v.isAiGenerated !== false || v.source === 'gemini'));
         }
         setPublishMessage({
           type: 'success',
@@ -800,12 +800,12 @@ export default function PostEditor({
                       <div className="flex items-center justify-between">
                         <span
                           className={`font-bold px-1.5 py-0.2 rounded text-[10px] ${
-                            lastGeneratedImageMeta.source === 'gemini_ai'
+                            lastGeneratedImageMeta.source === 'gemini'
                               ? 'bg-emerald-100 text-emerald-800'
                               : 'bg-amber-100 text-amber-800'
                           }`}
                         >
-                          {lastGeneratedImageMeta.source === 'gemini_ai' ? 'Gemini AI' : 'آرشیو مستند (Fallback)'}
+                          {lastGeneratedImageMeta.source === 'gemini' ? 'Gemini AI' : 'آرشیو مستند (Fallback)'}
                         </span>
                         {lastGeneratedImageMeta.strategy && (
                           <span className="text-stone-500 truncate text-[10px]">

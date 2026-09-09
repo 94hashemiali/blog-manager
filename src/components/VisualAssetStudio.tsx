@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { ImageAsset, ImageType, ManagedSite } from '../types';
+import { ImageAsset, ImageType, ManagedSite, FeedbackCode } from '../types';
 import {
   Sparkles,
   RefreshCw,
@@ -10,14 +10,15 @@ import {
   Check,
   AlertCircle,
   Upload,
-  Link,
   Info,
-  ShieldCheck,
   Compass,
   Layers,
   ChevronDown,
-  ChevronUp
+  ChevronUp,
+  GitCompare,
+  MessageSquare
 } from 'lucide-react';
+import { GENERATION_STAGE_LABELS, pollVisualJob, qualityDisplay, startVisualJob } from '../utils/visualGenerationClient';
 
 interface VisualAssetStudioProps {
   activeSite: ManagedSite;
@@ -25,26 +26,29 @@ interface VisualAssetStudioProps {
 }
 
 const IMAGE_TYPES: { type: ImageType; label: string; desc: string }[] = [
-  { type: 'HERO', label: 'بنر شاخص (Hero)', desc: 'ایده محوری مقاله با کادر باز و ساختار فنی باورپذیر' },
+  { type: 'HERO', label: 'بنر شاخص (Hero)', desc: 'ایده محوری مقاله با کادر قوی و سوژه مشخص' },
   { type: 'ARTICLE', label: 'تصویر متنی (Article)', desc: 'ثبت مستند میدانی تجهیزات در شرایط واقعی' },
-  { type: 'PRODUCT', label: 'محور محصول (Product)', desc: 'کلوزآپ و بافت محصول، زیره، زیپ‌ها، متریال فنی' },
-  { type: 'COMPARISON', label: 'مقایسه عینی (Comparison)', desc: 'مقایسه کنار هم دو ابزار یا متریال روی بستر یکسان' },
-  { type: 'TUTORIAL', label: 'آموزش گام‌به‌گام (Tutorial)', desc: 'راهنمای تصویری دست‌ها، چیدمان و تنظیم ابزار' }
+  { type: 'PRODUCT', label: 'محور محصول (Product)', desc: 'محصول غالب در کادر' },
+  { type: 'COMPARISON', label: 'مقایسه عینی (Comparison)', desc: 'دو سوژه قابل تمایز روی بستر یکسان' },
+  { type: 'TUTORIAL', label: 'آموزش گام‌به‌گام (Tutorial)', desc: 'کنش یا فرآیند قابل فهم' },
+  { type: 'DETAIL', label: 'جزئیات فنی (Detail)', desc: 'کلوزآپ معنادار فنی' },
+  { type: 'ENVIRONMENTAL', label: 'محیطی (Environmental)', desc: 'محیط در خدمت موضوع، نه جایگزین آن' }
 ];
 
-const REJECTION_REASONS = [
-  { key: 'too_generic', label: 'خیلی کلیشه‌ای است (Too generic)' },
-  { key: 'not_relevant', label: 'مرتبط با موضوع مقاله نیست (Not relevant)' },
-  { key: 'wrong_equipment', label: 'تجهیزات و متریال نادرست است (Wrong equipment)' },
-  { key: 'wrong_environment', label: 'محیط و لوکیشن اشتباه است (Wrong environment)' },
-  { key: 'bad_composition', label: 'ترکیب‌بندی و زاویه دید نامناسب است (Bad composition)' },
-  { key: 'too_cinematic', label: 'بیش از حد سینمایی و غروب کلیشه‌ای است (Too cinematic)' },
-  { key: 'looks_artificial', label: 'مصنوعی یا رندر شبیه است (Looks artificial)' },
-  { key: 'too_similar', label: 'بیش از حد شبیه به تصویر قبلی است (Too similar to previous)' },
-  { key: 'product_not_visible', label: 'محصول در کادر به اندازه کافی واضح نیست (Product not visible enough)' },
-  { key: 'human_unrealistic', label: 'فیگور یا آناتومی انسان غیرطبیعی است (Human looks unrealistic)' },
-  { key: 'technical_wrong', label: 'جزئیات فنی و ایمنی کوهستان رعایت نشده (Technical details are wrong)' },
-  { key: 'other', label: 'توضیحات اختصاصی دیگر (Other)' }
+const REJECTION_REASONS: { key: FeedbackCode; label: string }[] = [
+  { key: 'too_generic', label: 'خیلی کلیشه‌ای است' },
+  { key: 'doesnt_match_article', label: 'با مقاله هم‌خوانی ندارد' },
+  { key: 'wrong_subject', label: 'سوژه اشتباه است' },
+  { key: 'wrong_product', label: 'محصول اشتباه است' },
+  { key: 'product_too_small', label: 'محصول خیلی کوچک است' },
+  { key: 'too_cinematic', label: 'بیش از حد سینمایی است' },
+  { key: 'too_artificial', label: 'مصنوعی به نظر می‌رسد' },
+  { key: 'wrong_environment', label: 'محیط اشتباه است' },
+  { key: 'wrong_composition', label: 'ترکیب‌بندی اشتباه است' },
+  { key: 'anatomy_problem', label: 'مشکل آناتومی' },
+  { key: 'equipment_problem', label: 'مشکل تجهیزات' },
+  { key: 'too_similar', label: 'خیلی شبیه نسخه قبل است' },
+  { key: 'other', label: 'سایر' }
 ];
 
 export default function VisualAssetStudio({
@@ -70,9 +74,13 @@ export default function VisualAssetStudio({
 
   // Rejection modal
   const [rejectingImage, setRejectingImage] = useState<ImageAsset | null>(null);
-  const [rejectionReason, setRejectionReason] = useState(REJECTION_REASONS[0].label);
+  const [rejectionReason, setRejectionReason] = useState(REJECTION_REASONS[0].key);
   const [customRejectionText, setCustomRejectionText] = useState('');
   const [isRegeneratingVariation, setIsRegeneratingVariation] = useState(false);
+  const [generationStage, setGenerationStage] = useState<string | null>(null);
+  const [generationError, setGenerationError] = useState<string | null>(null);
+  const [fallbackOffers, setFallbackOffers] = useState<Array<{ id: string; title: string; url: string }>>([]);
+  const [compareImage, setCompareImage] = useState<ImageAsset | null>(null);
 
   const fetchImages = async () => {
     setIsLoading(true);
@@ -112,22 +120,25 @@ export default function VisualAssetStudio({
   const handleGenerate = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsGenerating(true);
+    setGenerationError(null);
+    setFallbackOffers([]);
+    setGenerationStage('understanding_article');
     try {
-      const res = await fetch('/api/ai/visual-assets', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          siteId: activeSite.id,
-          imageType: selectedType,
-          title: promptTopic.trim() || activeSite.profile?.niche || 'تجهیزات کوهنوردی و کمپینگ',
-          content: articleContentSample.trim(),
-          aspectRatio,
-          userInstructions: userCustomInstructions.trim(),
-          productReferenceImage: referenceImageUrl.trim() || undefined
-        })
+      const { jobId } = await startVisualJob({
+        siteId: activeSite.id,
+        imageType: selectedType,
+        title: promptTopic.trim() || activeSite.profile?.niche || 'تجهیزات فضای باز',
+        content: articleContentSample.trim(),
+        article: {
+          title: promptTopic.trim(),
+          content: articleContentSample.trim()
+        },
+        aspectRatio,
+        userInstructions: userCustomInstructions.trim(),
+        productReferenceImage: referenceImageUrl.trim() || undefined
       });
-      const data = await res.json();
-      if (data.image) {
+      const data = await pollVisualJob(jobId, (stage) => setGenerationStage(stage));
+      if (data?.image) {
         setImages((prev) => [data.image, ...prev]);
         setSelectedImage(data.image);
         setPromptTopic('');
@@ -135,11 +146,16 @@ export default function VisualAssetStudio({
         setUserCustomInstructions('');
         setReferenceImageUrl('');
         setReferenceImagePreview(null);
+      } else if (data && data.success === false) {
+        setGenerationError(data.message || 'تولید تصویر ناموفق بود');
+        setFallbackOffers(data.fallbackImages || data.fallbackOptions || []);
       }
-    } catch (e) {
-      console.error(e);
+    } catch (e: any) {
+      setGenerationError(e.message || 'خطا در تولید تصویر');
+      setFallbackOffers(e.fallbackImages || []);
     } finally {
       setIsGenerating(false);
+      setGenerationStage(null);
     }
   };
 
@@ -148,8 +164,8 @@ export default function VisualAssetStudio({
     setIsRegeneratingVariation(true);
     const effectiveTargetId = rejectingImage.id || rejectingImage.imageId;
     const finalReason = customRejectionText.trim()
-      ? `${rejectionReason}: ${customRejectionText.trim()}`
-      : rejectionReason;
+      ? `${REJECTION_REASONS.find((r) => r.key === rejectionReason)?.label || rejectionReason}: ${customRejectionText.trim()}`
+      : REJECTION_REASONS.find((r) => r.key === rejectionReason)?.label || rejectionReason;
 
     try {
       const res = await fetch(`/api/ai/visual-assets/${effectiveTargetId}/reject`, {
@@ -158,10 +174,16 @@ export default function VisualAssetStudio({
         body: JSON.stringify({
           siteId: activeSite.id,
           reason: finalReason,
+          feedbackCode: rejectionReason,
           userInstructions: customRejectionText.trim()
         })
       });
       const data = await res.json();
+      if (!res.ok || data.success === false) {
+        setGenerationError(data.message || data.error || 'بازسازی تصویر ناموفق بود');
+        setFallbackOffers(data.fallbackImages || data.fallbackOptions || []);
+        return;
+      }
       if (data.image) {
         setImages((prev) => [
           data.image,
@@ -171,10 +193,51 @@ export default function VisualAssetStudio({
         setRejectingImage(null);
         setCustomRejectionText('');
       }
-    } catch (e) {
-      console.error(e);
+    } catch (e: any) {
+      setGenerationError(e.message || 'خطا در بازسازی تصویر');
     } finally {
       setIsRegeneratingVariation(false);
+    }
+  };
+
+  const runImageAction = async (path: string, extra: Record<string, unknown> = {}) => {
+    if (!selectedImage) return;
+    const id = selectedImage.id || selectedImage.imageId;
+    setIsGenerating(true);
+    setGenerationError(null);
+    setGenerationStage('planning_visual_concept');
+    try {
+      const res = await fetch(`/api/ai/visual-assets/${id}/${path}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ siteId: activeSite.id, ...extra })
+      });
+      const data = await res.json();
+      if (!res.ok || data.success === false) {
+        setGenerationError(data.message || data.error || 'عملیات ناموفق بود');
+        setFallbackOffers(data.fallbackImages || data.fallbackOptions || []);
+        return;
+      }
+      if (data.image) {
+        setImages((prev) => [data.image, ...prev]);
+        setSelectedImage(data.image);
+      }
+    } catch (err: any) {
+      setGenerationError(err.message || 'خطا در ارتباط با سرور');
+    } finally {
+      setIsGenerating(false);
+      setGenerationStage(null);
+    }
+  };
+
+  const handleAccept = async () => {
+    if (!selectedImage) return;
+    const id = selectedImage.id || selectedImage.imageId;
+    const res = await fetch(`/api/ai/visual-assets/${id}/accept`, { method: 'POST' });
+    const data = await res.json();
+    if (data.image) {
+      setImages((prev) => prev.map((img) => ((img.id || img.imageId) === id ? { ...img, status: 'accepted' } : img)));
+      setSelectedImage({ ...selectedImage, status: 'accepted' });
     }
   };
 
@@ -366,6 +429,17 @@ export default function VisualAssetStudio({
           </div>
         </div>
 
+        <div>
+          <label className="block text-xs font-bold text-stone-800 mb-1">دستور ویراستار (اختیاری — کل پرامپت را جایگزین نمی‌کند):</label>
+          <input
+            type="text"
+            value={userCustomInstructions}
+            onChange={(e) => setUserCustomInstructions(e.target.value)}
+            placeholder="مثال: محصول را بزرگ‌تر نشان بده، نور ابری طبیعی، بدون غروب کلیشه‌ای"
+            className="w-full px-3 py-2 bg-stone-50 rounded-lg border border-stone-200 text-stone-800 text-xs outline-none"
+          />
+        </div>
+
         {/* Submit */}
         <div className="flex items-center justify-end gap-3 pt-2">
           <button
@@ -376,7 +450,7 @@ export default function VisualAssetStudio({
             {isGenerating ? (
               <>
                 <RefreshCw className="w-4 h-4 animate-spin" />
-                <span>در حال تحلیل کانسپت بصری و سنتز تصویر...</span>
+                <span>{GENERATION_STAGE_LABELS[generationStage || ''] || 'در حال تولید...'}</span>
               </>
             ) : (
               <>
@@ -387,6 +461,45 @@ export default function VisualAssetStudio({
           </button>
         </div>
       </form>
+
+      {generationError && (
+        <div className="bg-rose-50 border border-rose-200 text-rose-800 text-xs rounded-xl p-3 space-y-2">
+          <strong>خطای تولید تصویر: </strong>
+          {generationError}
+          <p className="text-[11px] text-rose-700">تصویر آرشیوی به‌جای نتیجه هوش مصنوعی قرار داده نشد.</p>
+          {fallbackOffers.length > 0 && (
+            <div className="flex flex-wrap gap-2 pt-1">
+              {fallbackOffers.map((fb) => (
+                <button
+                  key={fb.id}
+                  type="button"
+                  onClick={() => {
+                    const fallback = {
+                      imageId: fb.id,
+                      url: fb.url,
+                      source: 'unsplash_fallback' as const,
+                      isAiGenerated: false,
+                      imageType: selectedType,
+                      siteId: activeSite.id,
+                      prompt: '',
+                      perceptualHash: '',
+                      semanticDescription: fb.title,
+                      noveltyScore: 0,
+                      createdAt: new Date().toISOString(),
+                      aspectRatio,
+                      status: 'candidate' as const
+                    };
+                    setSelectedImage(fallback);
+                  }}
+                  className="px-2 py-1 bg-white border border-rose-200 rounded text-[11px]"
+                >
+                  استفاده صریح از آرشیو: {fb.title}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Main Studio Workspace (Split View) */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -432,12 +545,60 @@ export default function VisualAssetStudio({
                     <h4 className="font-bold text-stone-900 text-sm">
                       {selectedImage.visualConcept?.primarySubject || selectedImage.semanticDescription || 'تصویر تجهیزات کوهنوردی'}
                     </h4>
-                    <span className="text-xs text-stone-500 font-mono">
-                      استراتژی: {selectedImage.strategy?.name || selectedImage.perspective || 'ثبت مستند میدانی'}
+                    <span className="text-xs text-stone-500">
+                      استراتژی: {selectedImage.strategy?.nameFa || selectedImage.strategy?.name || selectedImage.perspective || '—'}
+                      {' · '}نسخه {selectedImage.version || selectedImage.generationVersion || 1}
+                      {' · '}وضعیت {selectedImage.status}
                     </span>
                   </div>
 
-                  <div className="flex items-center gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      onClick={handleAccept}
+                      className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-emerald-50 text-emerald-800 hover:bg-emerald-100 border border-emerald-200"
+                    >
+                      پذیرش
+                    </button>
+                    <button
+                      onClick={() => runImageAction('regenerate')}
+                      className="px-3 py-1.5 rounded-lg text-xs font-medium border border-stone-200 hover:bg-stone-50"
+                    >
+                      بازتولید
+                    </button>
+                    <button
+                      onClick={() => runImageAction('regenerate-differently')}
+                      className="px-3 py-1.5 rounded-lg text-xs font-medium border border-amber-200 bg-amber-50 text-amber-900"
+                    >
+                      بازتولید متفاوت
+                    </button>
+                    <button
+                      onClick={() => setRejectingImage(selectedImage)}
+                      className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-rose-50 text-rose-700 hover:bg-rose-100 border border-rose-200 flex items-center gap-1.5"
+                    >
+                      <MessageSquare className="w-3.5 h-3.5" />
+                      بازخورد
+                    </button>
+                    {onApplyImageToPost && selectedImage.source === 'gemini' && (
+                      <button
+                        onClick={() => onApplyImageToPost(selectedImage.url)}
+                        className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-emerald-600 text-white hover:bg-emerald-700"
+                      >
+                        تصویر شاخص
+                      </button>
+                    )}
+                    {images.filter((img) => (img.familyId || img.lineageId) && (img.familyId || img.lineageId) === (selectedImage.familyId || selectedImage.lineageId)).length > 1 && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const others = images.filter((img) => (img.id || img.imageId) !== (selectedImage.id || selectedImage.imageId));
+                          setCompareImage(others[0] || null);
+                        }}
+                        className="px-3 py-1.5 rounded-lg text-xs font-medium border border-stone-200 flex items-center gap-1"
+                      >
+                        <GitCompare className="w-3.5 h-3.5" />
+                        مقایسه نسخه‌ها
+                      </button>
+                    )}
                     <button
                       onClick={() => handleCopyUrl(selectedImage.url)}
                       className="px-3 py-1.5 rounded-lg text-xs font-medium border border-stone-200 hover:bg-stone-50 flex items-center gap-1.5 transition-colors cursor-pointer"
@@ -453,24 +614,6 @@ export default function VisualAssetStudio({
                           <span>کپی لینک</span>
                         </>
                       )}
-                    </button>
-
-                    {onApplyImageToPost && (
-                      <button
-                        onClick={() => onApplyImageToPost(selectedImage.url)}
-                        className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-emerald-600 text-white hover:bg-emerald-700 flex items-center gap-1.5 shadow-xs transition-colors cursor-pointer"
-                      >
-                        <CheckCircle2 className="w-3.5 h-3.5" />
-                        <span>انتخاب برای مقاله</span>
-                      </button>
-                    )}
-
-                    <button
-                      onClick={() => setRejectingImage(selectedImage)}
-                      className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-rose-50 text-rose-700 hover:bg-rose-100 border border-rose-200 flex items-center gap-1.5 transition-colors cursor-pointer"
-                    >
-                      <XCircle className="w-3.5 h-3.5" />
-                      <span>رد و تغییر زاویه (Reject & Diff)</span>
                     </button>
                   </div>
                 </div>
@@ -512,24 +655,42 @@ export default function VisualAssetStudio({
                 )}
 
                 {/* Quality & Novelty Metrics Grid */}
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
-                  <div className="p-3 bg-stone-50 rounded-lg border border-stone-100">
-                    <span className="text-stone-400 block text-[10px]">امتیاز تمایز (Novelty)</span>
-                    <strong className="text-emerald-700 font-extrabold text-sm">{selectedImage.noveltyScore}٪</strong>
-                  </div>
-                  <div className="p-3 bg-stone-50 rounded-lg border border-stone-100">
-                    <span className="text-stone-400 block text-[10px]">شاخص واقع‌گرایی</span>
-                    <strong className="text-stone-800 font-bold text-sm">{selectedImage.quality?.realism || 9}/10</strong>
-                  </div>
-                  <div className="p-3 bg-stone-50 rounded-lg border border-stone-100">
-                    <span className="text-stone-400 block text-[10px]">دقت فنی تجهیزات</span>
-                    <strong className="text-stone-800 font-bold text-sm">{selectedImage.quality?.equipmentAccuracy || 9}/10</strong>
-                  </div>
-                  <div className="p-3 bg-stone-50 rounded-lg border border-stone-100">
-                    <span className="text-stone-400 block text-[10px]">شاخص ارگونومی و ترکیب</span>
-                    <strong className="text-stone-800 font-bold text-sm">{selectedImage.quality?.composition || 9}/10</strong>
-                  </div>
+                <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 text-xs">
+                  {(() => {
+                    const q = qualityDisplay(selectedImage);
+                    return (
+                      <>
+                        <div className="p-3 bg-stone-50 rounded-lg border border-stone-100">
+                          <span className="text-stone-400 block text-[10px]">کیفیت کلی</span>
+                          <strong className="text-stone-800 font-extrabold text-sm">{q.overall}</strong>
+                        </div>
+                        <div className="p-3 bg-stone-50 rounded-lg border border-stone-100">
+                          <span className="text-stone-400 block text-[10px]">اصالت (Novelty)</span>
+                          <strong className="text-emerald-700 font-extrabold text-sm">{q.novelty}</strong>
+                        </div>
+                        <div className="p-3 bg-stone-50 rounded-lg border border-stone-100">
+                          <span className="text-stone-400 block text-[10px]">کلیشه‌ای بودن</span>
+                          <strong className="text-stone-800 font-bold text-sm">{q.genericness}</strong>
+                        </div>
+                        <div className="p-3 bg-stone-50 rounded-lg border border-stone-100">
+                          <span className="text-stone-400 block text-[10px]">ارتباط با مقاله</span>
+                          <strong className="text-stone-800 font-bold text-sm">{selectedImage.quality?.articleRelevance ?? selectedImage.quality?.relevance ?? '—'}</strong>
+                        </div>
+                        <div className="p-3 bg-stone-50 rounded-lg border border-stone-100">
+                          <span className="text-stone-400 block text-[10px]">منبع</span>
+                          <strong className="text-stone-800 font-bold text-sm">{selectedImage.source === 'gemini' ? 'Gemini' : 'آرشیو'}</strong>
+                        </div>
+                      </>
+                    );
+                  })()}
                 </div>
+                {(selectedImage.issues?.length || selectedImage.quality?.issues?.length || selectedImage.quality?.problems?.length) ? (
+                  <ul className="text-[11px] text-rose-700 bg-rose-50 border border-rose-100 rounded-lg p-2 space-y-1 list-disc list-inside">
+                    {(selectedImage.issues || selectedImage.quality?.issues || selectedImage.quality?.problems || []).map((issue, idx) => (
+                      <li key={idx}>{issue}</li>
+                    ))}
+                  </ul>
+                ) : null}
 
                 {/* Collapsible Shot Brief / Prompt */}
                 <div className="border border-stone-200 rounded-lg overflow-hidden">
@@ -644,11 +805,11 @@ export default function VisualAssetStudio({
               </label>
               <select
                 value={rejectionReason}
-                onChange={(e) => setRejectionReason(e.target.value)}
+                onChange={(e) => setRejectionReason(e.target.value as FeedbackCode)}
                 className="w-full px-3 py-2 bg-stone-50 rounded-lg border border-stone-300 text-stone-800 text-xs"
               >
                 {REJECTION_REASONS.map((r) => (
-                  <option key={r.key} value={r.label}>
+                  <option key={r.key} value={r.key}>
                     {r.label}
                   </option>
                 ))}
@@ -690,10 +851,31 @@ export default function VisualAssetStudio({
                 ) : (
                   <>
                     <RefreshCw className="w-3.5 h-3.5" />
-                    <span>تولید نسخه متفاوت (Different Strategy)</span>
+                    <span>تولید نسخه متفاوت</span>
                   </>
                 )}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {compareImage && selectedImage && (
+        <div className="fixed inset-0 z-50 bg-stone-900/60 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-4xl w-full p-5 space-y-3">
+            <div className="flex items-center justify-between">
+              <h4 className="font-bold text-sm">مقایسه نسخه‌ها</h4>
+              <button onClick={() => setCompareImage(null)} className="text-xs text-stone-500">بستن</button>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <img src={selectedImage.url} alt="" className="w-full rounded-lg object-cover h-48" />
+                <p className="text-[11px] mt-1">نسخه {selectedImage.version || 1} · {selectedImage.strategy?.nameFa || selectedImage.strategy?.name}</p>
+              </div>
+              <div>
+                <img src={compareImage.url} alt="" className="w-full rounded-lg object-cover h-48" />
+                <p className="text-[11px] mt-1">نسخه {compareImage.version || 1} · {compareImage.strategy?.nameFa || compareImage.strategy?.name}</p>
+              </div>
             </div>
           </div>
         </div>

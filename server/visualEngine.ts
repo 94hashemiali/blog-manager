@@ -1,9 +1,8 @@
-// Unified Visual Engine re-exporting and wrapping the comprehensive imageEngine
-export * from './imageEngine.js';
 import {
   generateMasterVisualAsset,
-  ImageType,
-  StructuredArticleContext
+  type GenerateMasterVisualParams,
+  type ImageType,
+  type StructuredArticleContext
 } from './imageEngine.js';
 
 export interface GenerateVisualParams {
@@ -17,14 +16,22 @@ export interface GenerateVisualParams {
   section?: string;
   aspectRatio?: string;
   userInstructions?: string;
+  userFeedback?: string;
+  feedbackCode?: GenerateMasterVisualParams['feedbackCode'];
   productReferenceImage?: string;
   rejectionFeedback?: {
     reason: string;
     previousImageId?: string;
     adjustments?: string;
+    code?: GenerateMasterVisualParams['feedbackCode'];
   };
   previousGenerations?: string[];
+  previousImageId?: string;
   forceNewStrategy?: boolean;
+  regenerationMode?: GenerateMasterVisualParams['regenerationMode'];
+  familyId?: string;
+  promptVariables?: GenerateMasterVisualParams['promptVariables'];
+  onStage?: GenerateMasterVisualParams['onStage'];
 }
 
 export async function generateVisualAsset(params: GenerateVisualParams) {
@@ -35,12 +42,13 @@ export async function generateVisualAsset(params: GenerateVisualParams) {
     sections: params.section ? [{ heading: params.section, text: '' }] : []
   };
 
-  const userFeedback = params.rejectionFeedback
-    ? `${params.rejectionFeedback.reason} ${params.rejectionFeedback.adjustments || ''}`.trim()
-    : params.userInstructions;
+  const userFeedback = params.userFeedback || params.userInstructions ||
+    (params.rejectionFeedback
+      ? `${params.rejectionFeedback.reason} ${params.rejectionFeedback.adjustments || ''}`.trim()
+      : undefined);
 
   return generateMasterVisualAsset({
-    siteId: params.siteId || 'site-madanicamp',
+    siteId: params.siteId,
     articleId: params.articleId,
     imageType: params.imageType || 'HERO',
     article: effectiveArticle,
@@ -49,8 +57,15 @@ export async function generateVisualAsset(params: GenerateVisualParams) {
     section: params.section,
     aspectRatio: params.aspectRatio || '16:9',
     userFeedback,
+    feedbackCode: params.feedbackCode || params.rejectionFeedback?.code,
     productReferenceImage: params.productReferenceImage,
     previousGenerations: params.previousGenerations,
-    forceNewStrategy: Boolean(params.rejectionFeedback || params.forceNewStrategy)
+    previousImageId: params.previousImageId || params.rejectionFeedback?.previousImageId,
+    forceNewStrategy: Boolean(params.rejectionFeedback || params.forceNewStrategy),
+    regenerationMode: params.regenerationMode || (params.forceNewStrategy ? 'different_concept' : 'new'),
+    familyId: params.familyId,
+    promptVariables: params.promptVariables,
+    rejectionFeedback: params.rejectionFeedback,
+    onStage: params.onStage
   });
 }

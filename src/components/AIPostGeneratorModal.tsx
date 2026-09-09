@@ -218,8 +218,8 @@ export default function AIPostGeneratorModal({
               featuredImageUrl = chosenUrl;
             }
           }
-        } catch {
-          // Graceful fallback
+        } catch (imgErr: any) {
+          console.warn('Hero image generation failed:', imgErr?.message || imgErr);
         }
 
         const newPost: Partial<WPPost> = {

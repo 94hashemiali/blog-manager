@@ -59,7 +59,7 @@ export default function AIWritingStudio({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           action,
-          title: title || 'مقاله کمپینگ مدنی کمپ',
+          title: title || 'مقاله تجهیزات فضای باز',
           content: content || '',
           focusKeyword: activeSectionPrompt.trim()
         })
@@ -104,27 +104,26 @@ export default function AIWritingStudio({
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          prompt: effectivePrompt,
-          title: title || 'تجهیزات کمپینگ مدنی کمپ',
+          userInstructions: effectivePrompt,
+          title: title || 'تجهیزات کوهنوردی',
           content: content || '',
           article: {
-            title: title || 'تجهیزات کمپینگ مدنی کمپ',
+            title: title || 'تجهیزات کوهنوردی',
             content: content || ''
           },
           imageType: 'HERO',
-          style: visualStyle,
           aspectRatio
         })
       });
 
       const data = await response.json();
-      if (!response.ok) throw new Error(data.error || 'خطا در تولید تصویر');
+      if (!response.ok || data.success === false) throw new Error(data.message || data.error || 'خطا در تولید تصویر');
 
       if (data.imageUrl) {
         setGeneratedPreviewUrl(data.imageUrl);
         onUpdateFeaturedImage(data.imageUrl);
         if (Array.isArray(data.variations)) {
-          setImageVariations(data.variations);
+          setImageVariations(data.variations.filter((v: any) => v.source === 'gemini' || v.isAiGenerated));
         }
         if (data.persianCaption) {
           setAiSceneCaption(data.persianCaption);

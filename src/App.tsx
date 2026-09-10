@@ -10,6 +10,7 @@ import SiteSelectorModal from './components/SiteSelectorModal';
 import SeoIntelligenceCenter from './components/SeoIntelligenceCenter';
 import ContentPlannerCalendar from './components/ContentPlannerCalendar';
 import VisualAssetStudio from './components/VisualAssetStudio';
+import ContentStudio from './components/ContentStudio';
 import { WPPost, WPCategory, SiteSettings, ManagedSite, KeywordOpportunity } from './types';
 import { normalizePost } from './utils/postUtils';
 
@@ -100,8 +101,8 @@ const DEFAULT_SITE: ManagedSite = {
 };
 
 export default function App() {
-  // Navigation View: 'posts' | 'seo' | 'planner' | 'visuals'
-  const [currentView, setCurrentView] = useState<'posts' | 'seo' | 'planner' | 'visuals'>('posts');
+  // Navigation View: 'posts' | 'production' | 'seo' | 'planner' | 'visuals'
+  const [currentView, setCurrentView] = useState<'posts' | 'production' | 'seo' | 'planner' | 'visuals'>('posts');
 
   // Sites state
   const [sites, setSites] = useState<ManagedSite[]>([DEFAULT_SITE]);
@@ -502,6 +503,13 @@ export default function App() {
               onDeletePost={handleDeletePost}
             />
           )
+        )}
+
+        {currentView === 'production' && (
+          <ContentStudio
+            activeSite={activeSite}
+            onOpenVisuals={() => setCurrentView('visuals')}
+          />
         )}
 
         {currentView === 'seo' && (

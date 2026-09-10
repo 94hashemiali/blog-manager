@@ -11,6 +11,7 @@ import { generateVisualAsset, generateMasterVisualAsset, generateArticleImagePla
 import { analyzeSiteIntelligence } from './server/siteIntelligence.js';
 import { resolveGeneratedImagePath } from './server/visual/storage.js';
 import { createVisualJob, updateVisualJob, getVisualJob } from './server/visual/jobs.js';
+import { productionRouter } from './server/content/index.js';
 import {
   syncSiteIntelligence,
   getContentIndex,
@@ -28,6 +29,9 @@ const app = express();
 const PORT = 3000;
 
 app.use(express.json({ limit: '10mb' }));
+
+// Content Production OS routes live in server/content/routes.ts.
+app.use('/api/production', productionRouter);
 
 const DEFAULT_WP_URL = 'https://madanicamp.com';
 

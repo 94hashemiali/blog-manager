@@ -1,5 +1,7 @@
-import { Mountain, Sparkles, RefreshCw, Settings, HelpCircle, ExternalLink, Globe2, Wifi, WifiOff, Layers, TrendingUp, Calendar, Camera, Plus, ChevronDown } from 'lucide-react';
+import { Mountain, Sparkles, RefreshCw, Settings, HelpCircle, ExternalLink, Globe2, Wifi, WifiOff, Layers, TrendingUp, Calendar, Camera, Plus, ChevronDown, Workflow } from 'lucide-react';
 import { ManagedSite } from '../types';
+
+export type AppView = 'posts' | 'seo' | 'planner' | 'visuals' | 'production';
 
 interface HeaderProps {
   siteStatus: {
@@ -17,8 +19,8 @@ interface HeaderProps {
   onCreateNewPost: () => void;
   activeSite?: ManagedSite;
   onOpenSiteSelector?: () => void;
-  currentView?: 'posts' | 'seo' | 'planner' | 'visuals';
-  onChangeView?: (view: 'posts' | 'seo' | 'planner' | 'visuals') => void;
+  currentView?: AppView;
+  onChangeView?: (view: AppView) => void;
 }
 
 export default function Header({
@@ -170,6 +172,18 @@ export default function Header({
             >
               <Layers className="w-4 h-4" />
               <span>مقالات و پست‌ها (Posts)</span>
+            </button>
+
+            <button
+              onClick={() => onChangeView('production')}
+              className={`px-3.5 py-1.5 rounded-lg flex items-center gap-1.5 transition-colors whitespace-nowrap ${
+                currentView === 'production'
+                  ? 'bg-emerald-50 text-emerald-800 border border-emerald-200 shadow-2xs'
+                  : 'text-stone-600 hover:bg-stone-100 hover:text-stone-900'
+              }`}
+            >
+              <Workflow className="w-4 h-4 text-emerald-600" />
+              <span>استودیوی تولید (Production)</span>
             </button>
 
             <button

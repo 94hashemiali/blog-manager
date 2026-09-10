@@ -34,6 +34,9 @@ export async function syncSiteIntelligence(params: {
     onProgress: params.onProgress
   });
 
+  // A partial crawl must never look like a clean inventory: missing pages are
+  // incomplete fetches, not deleted posts.
+  const crawlIncomplete = Boolean(crawl.postsPartial);
   const incomingMeta = crawl.posts.map((p) => ({ id: p.id, modified: p.modified, slug: p.slug }));
   const mode = params.mode || (previous.lastFullSyncAt ? 'incremental' : 'full');
   let selectedPosts = crawl.posts;
@@ -42,11 +45,16 @@ export async function syncSiteIntelligence(params: {
       previous.articles.map((a) => ({ id: a.id, modified: a.modified, slug: a.slug })),
       incomingMeta
     );
-    const keep = new Map(previous.articles.map((a) => [String(a.id), a]));
     const changed = new Set([...diff.newIds, ...diff.changedIds].map(String));
     selectedPosts = crawl.posts.filter((p) => changed.has(String(p.id)));
-    const nextArticles: IndexedArticle[] = previous.articles.filter((a) => !diff.removedIds.some((id) => String(id) === String(a.id)));
-    const rebuilt = selectedPosts.map((post) => indexPost(params.siteId, post, crawl.products.map((p) => p.name)));
+    // When the crawl stopped early, keep every previously indexed article that
+    // simply did not appear on the pages we managed to fetch.
+    const nextArticles: IndexedArticle[] = crawlIncomplete
+      ? [...previous.articles]
+      : previous.articles.filter((a) => !diff.removedIds.some((id) => String(id) === String(a.id)));
+    const rebuilt = selectedPosts.map((post) =>
+      indexPost(params.siteId, post, crawl.products.map((p) => p.name), baseUrl)
+    );
     for (const article of rebuilt) {
       const idx = nextArticles.findIndex((a) => String(a.id) === String(article.id));
       if (idx >= 0) nextArticles[idx] = article;
@@ -63,15 +71,28 @@ export async function syncSiteIntelligence(params: {
       articleTotalFromWp: crawl.articleTotalFromWp,
       previous,
       mode: 'incremental',
+      syncError: crawlIncomplete
+        ? `Partial WordPress crawl: fetched ${crawl.posts.length} of ${crawl.articleTotalFromWp ?? '?'} posts; removals were not applied.`
+        : undefined,
       onProgress: params.onProgress
     });
   }
 
   report('normalizing', { done: 0, total: crawl.posts.length });
-  const articles = crawl.posts.map((post, idx) => {
+  const crawledArticles = crawl.posts.map((post, idx) => {
     report('normalizing', { done: idx + 1, total: crawl.posts.length });
-    return indexPost(params.siteId, post, crawl.products.map((p) => p.name));
+    return indexPost(params.siteId, post, crawl.products.map((p) => p.name), baseUrl);
   });
+
+  // On a partial full sync, merge rather than replace so unseen posts are kept.
+  let articles = crawledArticles;
+  if (crawlIncomplete && previous.articles.length > 0) {
+    const seen = new Set(crawledArticles.map((article) => String(article.id)));
+    articles = [
+      ...crawledArticles,
+      ...previous.articles.filter((article) => !seen.has(String(article.id)))
+    ];
+  }
 
   return finalizeIndex({
     siteId: params.siteId,
@@ -84,14 +105,23 @@ export async function syncSiteIntelligence(params: {
     articleTotalFromWp: crawl.articleTotalFromWp,
     previous,
     mode: 'full',
+    syncError: crawlIncomplete
+      ? `Partial WordPress crawl: fetched ${crawl.posts.length} of ${crawl.articleTotalFromWp ?? '?'} posts; previous articles were preserved.`
+      : undefined,
     onProgress: params.onProgress
   });
 }
 
-function indexPost(siteId: string, post: ReturnType<typeof import('./wordpress.js').mapWpPost>, knownProducts: string[]): IndexedArticle {
+function indexPost(
+  siteId: string,
+  post: ReturnType<typeof import('./wordpress.js').mapWpPost>,
+  knownProducts: string[],
+  siteBaseUrl?: string
+): IndexedArticle {
   const normalized = normalizeWordpressHtml(post.title, post.content, {
     category: post.categories[0],
-    tags: post.tags
+    tags: post.tags,
+    siteBaseUrl
   });
   const fingerprint = buildFingerprint({
     siteId,
@@ -135,6 +165,7 @@ async function finalizeIndex(params: {
   articleTotalFromWp?: number;
   previous: SiteContentIndex;
   mode: 'full' | 'incremental';
+  syncError?: string;
   onProgress?: (p: SyncProgress) => void;
 }): Promise<SiteContentIndex> {
   params.onProgress?.({ stage: 'fingerprints' });
@@ -191,7 +222,8 @@ async function finalizeIndex(params: {
     clusters,
     gaps,
     opportunities,
-    fingerprints: params.articles.map((a) => a.fingerprint)
+    fingerprints: params.articles.map((a) => a.fingerprint),
+    syncError: params.syncError
   };
 
   params.onProgress?.({ stage: 'updating_intelligence' });

@@ -1,7 +1,11 @@
 import fs from 'fs';
 import path from 'path';
 
-const DATA_DIR = path.join(process.cwd(), 'data');
+// BLOG_MANAGER_DATA_DIR lets the test runners persist into a scratch directory
+// instead of the working data/ folder.
+const DATA_DIR = process.env.BLOG_MANAGER_DATA_DIR
+  ? path.resolve(process.env.BLOG_MANAGER_DATA_DIR)
+  : path.join(process.cwd(), 'data');
 
 if (!fs.existsSync(DATA_DIR)) {
   fs.mkdirSync(DATA_DIR, { recursive: true });
@@ -9,6 +13,10 @@ if (!fs.existsSync(DATA_DIR)) {
 
 function getFilePath(filename: string): string {
   return path.join(DATA_DIR, filename);
+}
+
+function safeSiteId(siteId: string): string {
+  return String(siteId || 'unknown').replace(/[^a-zA-Z0-9_-]/g, '_');
 }
 
 function readJsonFile<T>(filename: string, defaultValue: T): T {
@@ -226,11 +234,16 @@ export const db = {
   saveJobs: (jobs: any[]) => writeJsonFile('jobs.json', jobs),
 
   getContentIndex: (siteId: string) => {
-    const safe = String(siteId || 'unknown').replace(/[^a-zA-Z0-9_-]/g, '_');
-    return readJsonFile<any>(`content-index-${safe}.json`, null);
+    return readJsonFile<any>(`content-index-${safeSiteId(siteId)}.json`, null);
   },
   saveContentIndex: (siteId: string, index: any) => {
-    const safe = String(siteId || 'unknown').replace(/[^a-zA-Z0-9_-]/g, '_');
-    writeJsonFile(`content-index-${safe}.json`, index);
+    writeJsonFile(`content-index-${safeSiteId(siteId)}.json`, index);
+  },
+
+  getProductionStore: (siteId: string) => {
+    return readJsonFile<any>(`production-${safeSiteId(siteId)}.json`, null);
+  },
+  saveProductionStore: (siteId: string, store: any) => {
+    writeJsonFile(`production-${safeSiteId(siteId)}.json`, store);
   }
 };

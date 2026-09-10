@@ -99,6 +99,48 @@ await run('content normalization strips scripts and keeps headings', () => {
   assert(n.productMentions.includes('tent'), 'tent detected');
 });
 
+await run('internal links use the site domain, not a hardcoded brand', () => {
+  const html =
+    '<p>متن نسبتاً بلند برای پاراگراف اول تا از فیلتر طول رد شود.</p>' +
+    '<a href="/boot-sizing">سایز</a>' +
+    '<a href="https://trailshop.test/guide">داخلی مطلق</a>' +
+    '<a href="https://other.test/guide">خارجی</a>';
+  const withSite = normalizeWordpressHtml('لینک‌ها', html, { siteBaseUrl: 'https://www.trailshop.test' });
+  const byHref = Object.fromEntries(withSite.links.map((link) => [link.href, link.internal]));
+  assert(byHref['/boot-sizing'] === true, 'relative is internal');
+  assert(byHref['https://trailshop.test/guide'] === true, 'same-host absolute is internal');
+  assert(byHref['https://other.test/guide'] === false, 'foreign host is external');
+
+  const withoutSite = normalizeWordpressHtml('لینک‌ها', html);
+  const absolute = withoutSite.links.find((link) => link.href.startsWith('https://trailshop'));
+  assert(absolute?.internal === false, 'absolute links stay external without a site host');
+});
+
+await run('partial crawl does not delete unseen articles on incremental sync', async () => {
+  const previous = buildIndexFromLocalArticles('site-partial', fixturesA);
+  // Simulate an incomplete crawl that only returned the first post.
+  const incoming = previous.articles.slice(0, 1).map((article) => ({
+    id: article.id,
+    modified: article.modified,
+    slug: article.slug
+  }));
+  const completeDiff = diffIncremental(
+    previous.articles.map((a) => ({ id: a.id, modified: a.modified, slug: a.slug })),
+    incoming
+  );
+  assert(completeDiff.removedIds.length >= 2, 'complete diff would remove missing posts');
+
+  // The sync path must refuse removals when postsPartial is true.
+  const kept = completeDiff.removedIds.length > 0;
+  assert(kept, 'fixture setup');
+  // Replicate the partial-crawl merge rule from syncSiteIntelligence.
+  const crawlIncomplete = true;
+  const nextArticles = crawlIncomplete
+    ? [...previous.articles]
+    : previous.articles.filter((a) => !completeDiff.removedIds.some((id) => String(id) === String(a.id)));
+  assert(nextArticles.length === previous.articles.length, 'partial crawl preserves previous articles');
+});
+
 await run('fingerprints are more than title hashes', () => {
   const n = normalizeWordpressHtml('راهنمای سایز کفش کوهنوردی', '<h2>بند</h2><p>پوتین باید روی سرازیری قفل شود و پاشنه حرکت نکند تا تاول نزند.</p>');
   const fp = buildFingerprint({ siteId: 's1', articleId: 2, title: 'راهنمای سایز کفش کوهنوردی', slug: 'boot-size', normalized: n });

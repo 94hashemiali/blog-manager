@@ -15,7 +15,7 @@ function decode(text: string): string {
 export function normalizeWordpressHtml(
   title: string,
   html: string,
-  extras?: { category?: string; tags?: string[] }
+  extras?: { category?: string; tags?: string[]; siteBaseUrl?: string }
 ): NormalizedArticle {
   const raw = html || '';
   const withoutChrome = raw
@@ -61,6 +61,7 @@ export function normalizeWordpressHtml(
     }
   }
 
+  const siteHost = hostnameOf(extras?.siteBaseUrl);
   const links: NormalizedArticle['links'] = [];
   for (const match of withoutChrome.matchAll(/<a[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi)) {
     const href = match[1];
@@ -69,9 +70,7 @@ export function normalizeWordpressHtml(
     links.push({
       href,
       text,
-      internal: !/^https?:\/\//i.test(href) || /madanicamp|localhost/i.test(href) === false
-        ? !/^https?:\/\//i.test(href)
-        : true
+      internal: isInternalHref(href, siteHost)
     });
   }
 
@@ -120,3 +119,25 @@ export function normalizeWordpressHtml(
     plainText: stripHtml(withoutChrome).slice(0, 8000)
   };
 }
+
+function hostnameOf(url?: string): string | undefined {
+  if (!url) return undefined;
+  try {
+    return new URL(url.includes('://') ? url : `https://${url}`).hostname.replace(/^www\./i, '').toLowerCase();
+  } catch {
+    return undefined;
+  }
+}
+
+/** Relative URLs and absolute URLs on the site's own host count as internal. */
+function isInternalHref(href: string, siteHost?: string): boolean {
+  if (!/^https?:\/\//i.test(href)) return true;
+  if (!siteHost) return false;
+  try {
+    const host = new URL(href).hostname.replace(/^www\./i, '').toLowerCase();
+    return host === siteHost || host.endsWith(`.${siteHost}`);
+  } catch {
+    return false;
+  }
+}
+

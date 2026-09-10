@@ -24,6 +24,15 @@ export function calculatePriorityScore(
   return Math.max(10, Math.min(99, Math.round(rawScore * 1.8)));
 }
 
+/** Maps qualitative demand bands onto the 1–10 UI scale without inventing volume. */
+function demandBandToScore(value: unknown): number {
+  if (typeof value === 'number' && Number.isFinite(value)) return Math.max(0, Math.min(10, value));
+  if (value === 'High') return 8;
+  if (value === 'Medium') return 5;
+  if (value === 'Low') return 3;
+  return 0;
+}
+
 export async function discoverKeywordOpportunities(siteId: string, seedTopic?: string): Promise<any[]> {
   const site = db.getSiteById(siteId);
   if (!site) throw new Error('Site not found');
@@ -97,7 +106,7 @@ export async function discoverKeywordOpportunities(siteId: string, seedTopic?: s
       estimatedDemand: opp.trafficPotential.value,
       competitionLevel: 'Unknown',
       businessValue: opp.businessValue.value,
-      trafficPotential: typeof opp.trafficPotential.value === 'number' ? opp.trafficPotential.value : 0,
+      trafficPotential: demandBandToScore(opp.trafficPotential.value),
       conversionPotential: opp.conversionPotential.value,
       contentGap: opp.contentGap.value,
       seasonality: 'unknown',

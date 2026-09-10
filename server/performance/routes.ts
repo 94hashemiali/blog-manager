@@ -39,11 +39,11 @@ performanceRouter.get('/:siteId/articles', (req, res) => {
   const siteId = requireSite(req, res);
   if (!siteId) return;
   const store = loadPerformanceStore(siteId);
-  const records =
-    store.records.length > 0 ? store.records : syncPerformanceForSite(siteId).records;
   res.json({
     success: true,
-    articles: records.map((record) => ({
+    needsSync: store.records.length === 0,
+    lastSyncedAt: store.lastSyncedAt,
+    articles: store.records.map((record) => ({
       articleId: record.articleId,
       title: record.baseline.title,
       url: record.baseline.url,
@@ -62,10 +62,13 @@ performanceRouter.get('/:siteId/articles', (req, res) => {
 performanceRouter.get('/:siteId/articles/:articleId', (req, res) => {
   const siteId = requireSite(req, res);
   if (!siteId) return;
-  let records = loadPerformanceStore(siteId).records;
-  if (records.length === 0) records = syncPerformanceForSite(siteId).records;
+  const records = loadPerformanceStore(siteId).records;
   const record = records.find((row) => String(row.articleId) === String(req.params.articleId));
-  if (!record) return fail(res, 404, 'رکورد عملکرد برای این مقاله یافت نشد.');
+  if (!record) {
+    return fail(res, 404, 'رکورد عملکرد یافت نشد. ابتدا همگام‌سازی را اجرا کنید.', {
+      error: { code: 'needs_sync', message: 'رکورد عملکرد یافت نشد. ابتدا همگام‌سازی را اجرا کنید.', retryable: false }
+    });
+  }
   res.json({ success: true, record });
 });
 
@@ -73,23 +76,21 @@ performanceRouter.get('/:siteId/opportunities', (req, res) => {
   const siteId = requireSite(req, res);
   if (!siteId) return;
   const store = loadPerformanceStore(siteId);
-  const opportunities =
-    store.opportunities.length > 0
-      ? store.opportunities
-      : syncPerformanceForSite(siteId).records.flatMap((record) => record.opportunities);
-  res.json({ success: true, opportunities });
+  res.json({
+    success: true,
+    needsSync: store.records.length === 0,
+    opportunities: store.opportunities
+  });
 });
 
 performanceRouter.get('/:siteId/decay', (req, res) => {
   const siteId = requireSite(req, res);
   if (!siteId) return;
-  const records =
-    loadPerformanceStore(siteId).records.length > 0
-      ? loadPerformanceStore(siteId).records
-      : syncPerformanceForSite(siteId).records;
+  const store = loadPerformanceStore(siteId);
   res.json({
     success: true,
-    decay: records.map((record) => ({
+    needsSync: store.records.length === 0,
+    decay: store.records.map((record) => ({
       articleId: record.articleId,
       title: record.baseline.title,
       status: record.decay.status,

@@ -299,6 +299,8 @@ function makeJob(overrides: Partial<ContentProductionJob> = {}): ContentProducti
     id: 'job-test',
     siteId: SITE_A,
     stage: 'seo_ready',
+    status: 'QUEUED',
+    mode: 'CREATE',
     topic: briefA.workingTitle,
     primaryKeyword: briefA.primaryKeyword,
     searchIntent: 'commercial',
@@ -308,6 +310,8 @@ function makeJob(overrides: Partial<ContentProductionJob> = {}): ContentProducti
     publishingHistory: [],
     stageHistory: [{ stage: 'idea', at: now }],
     failures: [],
+    retryCount: 0,
+    maxRetries: 2,
     createdAt: now,
     updatedAt: now,
     ...overrides
@@ -687,6 +691,16 @@ await run('publishing checklist blocks on missing validation and fact check', ()
     job: makeJob({
       draft: makeDraft(),
       stage: 'approved',
+      research: {
+        ...researchA,
+        qualityGate: {
+          status: 'PASS',
+          reasons: ['evidence present'],
+          blocking: [],
+          warnings: [],
+          assessedAt: new Date().toISOString()
+        }
+      },
       validation: validateArticleDraft({ draft: makeDraft(), brief: briefA, research: researchA }),
       factCheck: {
         id: 'fc',

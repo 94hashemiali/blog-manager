@@ -1,7 +1,7 @@
-import { Mountain, Sparkles, RefreshCw, Settings, HelpCircle, ExternalLink, Globe2, Wifi, WifiOff, Layers, TrendingUp, Calendar, Camera, Plus, ChevronDown, Workflow, Activity } from 'lucide-react';
+import { Mountain, Sparkles, RefreshCw, Settings, HelpCircle, ExternalLink, Globe2, Wifi, WifiOff, Layers, TrendingUp, Calendar, Camera, Plus, ChevronDown, Workflow, Activity, LayoutDashboard } from 'lucide-react';
 import { ManagedSite } from '../types';
 
-export type AppView = 'posts' | 'seo' | 'planner' | 'visuals' | 'production' | 'performance';
+export type AppView = 'posts' | 'seo' | 'planner' | 'visuals' | 'production' | 'performance' | 'overview';
 
 interface HeaderProps {
   siteStatus: {
@@ -162,6 +162,18 @@ export default function Header({
         {/* Navigation Tabs Bar */}
         {onChangeView && (
           <nav className="flex items-center gap-1 overflow-x-auto py-2.5 border-t border-stone-100 text-xs font-bold scrollbar-none">
+            <button
+              onClick={() => onChangeView('overview')}
+              className={`px-3.5 py-1.5 rounded-lg flex items-center gap-1.5 transition-colors whitespace-nowrap ${
+                currentView === 'overview'
+                  ? 'bg-emerald-50 text-emerald-800 border border-emerald-200 shadow-2xs'
+                  : 'text-stone-600 hover:bg-stone-100 hover:text-stone-900'
+              }`}
+            >
+              <LayoutDashboard className="w-4 h-4 text-stone-700" />
+              <span>نمای کلی (Overview)</span>
+            </button>
+
             <button
               onClick={() => onChangeView('posts')}
               className={`px-3.5 py-1.5 rounded-lg flex items-center gap-1.5 transition-colors whitespace-nowrap ${

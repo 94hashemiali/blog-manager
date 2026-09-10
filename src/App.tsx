@@ -12,98 +12,21 @@ import ContentPlannerCalendar from './components/ContentPlannerCalendar';
 import VisualAssetStudio from './components/VisualAssetStudio';
 import ContentStudio from './components/ContentStudio';
 import PerformanceDashboard from './components/PerformanceDashboard';
+import OpsOverview from './components/OpsOverview';
 import { WPPost, WPCategory, SiteSettings, ManagedSite, KeywordOpportunity } from './types';
 import { normalizePost } from './utils/postUtils';
 import type { AppView } from './components/Header';
+import {
+  DEMO_SITE_SEED,
+  STORAGE_KEY_ACTIVE_SITE_ID,
+  STORAGE_KEY_LOCAL_POSTS,
+  STORAGE_KEY_SETTINGS
+} from './demo/seedSite';
 
-const STORAGE_KEY_SETTINGS = 'madani_blog_settings';
-const STORAGE_KEY_LOCAL_POSTS = 'madani_local_posts';
-const STORAGE_KEY_ACTIVE_SITE_ID = 'madani_active_site_id';
-
-const DEFAULT_SITE: ManagedSite = {
-  id: 'site-madanicamp',
-  name: 'مدنی کمپ',
-  url: 'https://madanicamp.com',
-  description: 'مرجع تخصصی تجهیزات کوهنوردی، کمپینگ، صخره‌نوردی و سفرهای ماجراجویانه در ایران',
-  language: 'fa',
-  wordpress: {
-    baseUrl: 'https://madanicamp.com',
-    username: '',
-    applicationPassword: '',
-    hasPassword: false
-  },
-  brand: {
-    name: 'مدنی کمپ',
-    description: 'مرجع تجهیزات کوهنوردی و طبیعت‌گردی',
-    primaryColor: '#059669',
-    secondaryColor: '#0d9488'
-  },
-  seo: {
-    domain: 'madanicamp.com',
-    targetCountry: 'IR',
-    targetLanguage: 'fa',
-    targetAudience: 'طبیعت‌گردان و کوهنوردان'
-  },
-  content: {
-    tone: 'practical',
-    topics: ['چادر کوهنوردی', 'کیسه خواب', 'کوله پشتی', 'پوتین کوهنوردی', 'سرشعله و ظروف کمپ', 'کیت بقا'],
-    excludedTopics: []
-  },
-  profile: {
-    niche: 'تجهیزات و راهنماهای کاربردی کمپینگ و کوهنوردی',
-    audience: ['کوهنوردان نیمه‌حرفه‌ای و حرفه‌ای', 'طبیعت‌گردان آخر هفته', 'آفرودرها و کمپرها'],
-    mainTopics: ['چادر', 'کیسه خواب', 'کوله پشتی', 'پوتین'],
-    subTopics: ['وزن کوله', 'دمای کامفورت', 'ضدآب سازی', 'کمپ زمستانه'],
-    products: ['کیسه خواب پر', 'چادر ۲ نفره', 'پوتین لوفا', 'کوله ۶۵ لیتری'],
-    categories: ['مقالات', 'راهنمای خرید', 'بررسی تجهیزات'],
-    contentStyle: 'جامع، همراه با تصویر و نکات تجربی',
-    brandVoice: 'فنی، تجربی، مورد اعتماد و صمیمی',
-    existingContentCount: 3,
-    contentClusters: [
-      {
-        id: 'cluster-tents',
-        name: 'چادر و سرپناه کمپینگ',
-        pillarTopic: 'راهنمای جامع انتخاب و خرید چادر کوهنوردی و کمپینگ',
-        existingArticlesCount: 3,
-        missingArticlesCount: 5,
-        topics: [
-          { title: 'تفاوت چادر اتوماتیک و عصایی', keyword: 'چادر اتوماتیک کمپینگ', status: 'existing' },
-          { title: 'چادر ۴ فصل کوهنوردی در باد شدید', keyword: 'چادر ۴ فصل کوهنوردی', status: 'missing' },
-          { title: 'نحوه تمیز کردن و آب‌بندی درز چادر', keyword: 'آب بندی چادر کوهنوردی', status: 'missing' }
-        ]
-      },
-      {
-        id: 'cluster-sleep',
-        name: 'سیستم خواب و استراحت',
-        pillarTopic: 'اصول خواب گرم در طبیعت و انتخاب کیسه خواب',
-        existingArticlesCount: 2,
-        missingArticlesCount: 4,
-        topics: [
-          { title: 'راهنمای خرید کیسه خواب برای فصول سرد', keyword: 'کیسه خواب کوهنوردی', status: 'existing' },
-          { title: 'زیرانداز بادی یا فومی؟ مقایسه R-Value', keyword: 'زیرانداز کیسه خواب', status: 'missing' }
-        ]
-      }
-    ],
-    contentGaps: [
-      {
-        id: 'gap-winter-survival',
-        topic: 'تجهیزات بقا در صعود زمستانه',
-        competitorsCovering: 2,
-        siteCoverage: 0,
-        businessValue: 9,
-        trafficPotential: 8,
-        gapScore: 92,
-        reason: 'تقاضای بالا در فصل زمستان و بهار بدون مقاله اختصاصی در سایت'
-      }
-    ],
-    lastAnalyzedAt: new Date().toISOString()
-  },
-  createdAt: new Date().toISOString(),
-  updatedAt: new Date().toISOString()
-};
+const DEFAULT_SITE: ManagedSite = DEMO_SITE_SEED;
 
 export default function App() {
-  // Navigation View: 'posts' | 'production' | 'seo' | 'planner' | 'visuals' | 'performance'
+  // Navigation View includes ops overview
   const [currentView, setCurrentView] = useState<AppView>('posts');
   const [pendingProductionJobId, setPendingProductionJobId] = useState<string | null>(null);
 
@@ -483,6 +406,13 @@ export default function App() {
 
       {/* Main Workspace based on View */}
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6">
+        {currentView === 'overview' && (
+          <OpsOverview
+            activeSite={activeSite}
+            onOpenView={(view) => setCurrentView(view === 'research' ? 'production' : view)}
+          />
+        )}
+
         {currentView === 'posts' && (
           editingPost ? (
             <PostEditor

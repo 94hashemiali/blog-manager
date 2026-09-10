@@ -8,6 +8,7 @@ import { fetchResearchUrl } from './fetcher.js';
 import { buildResearchPlan } from './planner.js';
 import { defaultResearchProviders, getWebSearchProvider } from './providers.js';
 import { assessResearchQuality } from './quality.js';
+import { assessSourceQuality } from './sourceQuality.js';
 import { getCachedSource, putCachedSource, saveResearchSession } from './store.js';
 import { getContentIndex } from '../intelligence/store.js';
 import {
@@ -40,20 +41,18 @@ function extractedToPacketEvidence(items: ExtractedEvidence[]): EvidenceItem[] {
 function sourcesToPacketSources(sources: ResearchSourceDocument[]): ResearchSource[] {
   return sources
     .filter((row) => row.status === 'ok' || row.status === 'cached')
-    .map((row) => ({
-      id: row.id,
-      label: row.title || row.domain,
-      url: row.url,
-      sourceType: toEvidenceSourceType(row.sourceType),
-      reliability:
-        row.sourceType === 'UNKNOWN' || row.sourceType === 'COMMUNITY'
-          ? 'low'
-          : row.sourceType === 'REPUTABLE_PUBLICATION'
-            ? 'medium'
-            : 'high',
-      retrievedAt: row.fetchedAt,
-      notes: `freshness=${row.freshness}; hash=${row.contentHash}`
-    }));
+    .map((row) => {
+      const quality = assessSourceQuality(row);
+      return {
+        id: row.id,
+        label: row.title || row.domain,
+        url: row.url,
+        sourceType: toEvidenceSourceType(row.sourceType),
+        reliability: quality.quality === 'high' ? 'high' : quality.quality === 'medium' ? 'medium' : 'low',
+        retrievedAt: row.fetchedAt,
+        notes: `freshness=${row.freshness}; hash=${row.contentHash}; quality=${quality.quality}; ${quality.reasons.join(',')}`
+      };
+    });
 }
 
 export async function fetchAndCacheSource(params: {
@@ -182,6 +181,7 @@ export async function runGroundedResearch(params: GenerateResearchParams & {
     id: sessionId(params.siteId, params.topic),
     siteId: params.siteId,
     topic: params.topic,
+    status: qualityGate.status === 'BLOCKED' ? 'INVALIDATED' : 'READY',
     plan,
     sources,
     extractedEvidence: extracted,

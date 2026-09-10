@@ -29,9 +29,20 @@ function migrateJob(raw: any, siteId: string): ContentProductionJob {
     stageHistory: Array.isArray(raw.stageHistory) ? raw.stageHistory : [],
     failures: Array.isArray(raw.failures) ? raw.failures : [],
     stage: raw.stage || 'idea',
+    status: raw.status || deriveStatusFromStage(raw.stage),
     mode: raw.mode === 'UPDATE' || raw.mode === 'MERGE' ? raw.mode : 'CREATE',
-    searchIntent: (raw.searchIntent as SearchIntent) || 'informational'
+    searchIntent: (raw.searchIntent as SearchIntent) || 'informational',
+    retryCount: Number.isFinite(raw.retryCount) ? raw.retryCount : 0,
+    maxRetries: Number.isFinite(raw.maxRetries) ? raw.maxRetries : 2,
+    contentEntityId: raw.contentEntityId || `entity-${siteId}-${raw.id || 'unknown'}`
   };
+}
+
+function deriveStatusFromStage(stage?: string): ContentProductionJob['status'] {
+  if (stage === 'published') return 'COMPLETED';
+  if (stage === 'needs_revision') return 'PAUSED';
+  if (stage === 'publishing') return 'RUNNING';
+  return 'QUEUED';
 }
 
 export function loadProductionStore(siteId: string): ProductionStore {
@@ -70,9 +81,15 @@ export function newJobId(): string {
   return `prod-${Date.now().toString(36)}-${crypto.randomBytes(3).toString('hex')}`;
 }
 
-export function saveJob(job: ContentProductionJob): ContentProductionJob {
+export function saveJob(
+  job: ContentProductionJob,
+  options?: { preserveTimestamps?: boolean }
+): ContentProductionJob {
   const store = loadProductionStore(job.siteId);
-  const next = { ...job, updatedAt: new Date().toISOString() };
+  const next = {
+    ...job,
+    updatedAt: options?.preserveTimestamps ? job.updatedAt : new Date().toISOString()
+  };
   const index = store.jobs.findIndex((row) => row.id === job.id);
   if (index >= 0) store.jobs[index] = next;
   else store.jobs.unshift(next);

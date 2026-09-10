@@ -1,4 +1,5 @@
 export { researchRouter } from './routes.js';
+export { assessSourceQuality, classifyClaimSupportStrength } from './sourceQuality.js';
 export { buildResearchPlan } from './planner.js';
 export { fetchResearchUrl, stripHtmlToText, classifyFreshness, inferSourceType } from './fetcher.js';
 export { extractEvidenceFromSource } from './extractor.js';

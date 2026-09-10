@@ -10,13 +10,84 @@ import { runGroundedResearch } from '../research/packet.js';
 import { buildPublishingChecklist } from './publishing.js';
 import { validateArticleDraft } from './validation.js';
 import { appendVersion } from './versions.js';
-import { newJobId, saveJob } from './store.js';
+import { getJob, newJobId, saveJob } from './store.js';
+import { assertJobNotCancelled, markJobFailed, markJobRunning, markJobStageIdle } from './jobOps.js';
 import type {
   ContentProductionJob,
   ProductionStage,
   SearchIntent,
   StageFailure
 } from './types.js';
+
+async function runGuardedStage(
+  job: ContentProductionJob,
+  stageKey: string,
+  run: (running: ContentProductionJob) => Promise<ContentProductionJob>
+): Promise<ContentProductionJob> {
+  assertJobNotCancelled(job);
+  if (job.status === 'CANCELLED' || job.status === 'INTERRUPTED') {
+    throw new Error('این کار در وضعیت قابل اجرا نیست.');
+  }
+  const running = markJobRunning(job);
+  try {
+    assertJobNotCancelled(running);
+    const next = await run(running);
+    assertJobNotCancelled(next);
+    return markJobStageIdle(next);
+  } catch (err: any) {
+    const latest = getJob(running.siteId, running.id) || running;
+    if (latest.cancelRequestedAt || err?.message === 'این کار لغو شده است.') {
+      if (latest.status !== 'CANCELLED') {
+        saveJob({
+          ...latest,
+          status: 'CANCELLED',
+          cancelledAt: latest.cancelledAt || new Date().toISOString(),
+          updatedAt: new Date().toISOString()
+        });
+      }
+      throw err;
+    }
+    if (latest.status === 'RUNNING') {
+      markJobFailed(latest, err?.message || `${stageKey} failed`, err?.retryable !== false);
+    }
+    throw err;
+  }
+}
+
+function runGuardedStageSync(
+  job: ContentProductionJob,
+  stageKey: string,
+  run: (running: ContentProductionJob) => ContentProductionJob
+): ContentProductionJob {
+  assertJobNotCancelled(job);
+  if (job.status === 'CANCELLED' || job.status === 'INTERRUPTED') {
+    throw new Error('این کار در وضعیت قابل اجرا نیست.');
+  }
+  const running = markJobRunning(job);
+  try {
+    assertJobNotCancelled(running);
+    const next = run(running);
+    assertJobNotCancelled(next);
+    return markJobStageIdle(next);
+  } catch (err: any) {
+    const latest = getJob(running.siteId, running.id) || running;
+    if (latest.cancelRequestedAt || err?.message === 'این کار لغو شده است.') {
+      if (latest.status !== 'CANCELLED') {
+        saveJob({
+          ...latest,
+          status: 'CANCELLED',
+          cancelledAt: latest.cancelledAt || new Date().toISOString(),
+          updatedAt: new Date().toISOString()
+        });
+      }
+      throw err;
+    }
+    if (latest.status === 'RUNNING') {
+      markJobFailed(latest, err?.message || `${stageKey} failed`, err?.retryable !== false);
+    }
+    throw err;
+  }
+}
 
 /** Allowed forward moves. needs_revision can re-enter the pipeline anywhere. */
 const TRANSITIONS: Record<ProductionStage, ProductionStage[]> = {
@@ -69,22 +140,27 @@ export function createProductionJob(params: {
   if (!topic) throw new Error('موضوع مقاله الزامی است.');
 
   const now = new Date().toISOString();
+  const jobId = newJobId();
   const job: ContentProductionJob = {
-    id: newJobId(),
+    id: jobId,
     siteId: params.siteId,
     stage: 'idea',
+    status: 'QUEUED',
     mode: 'CREATE',
     topic,
     primaryKeyword: params.primaryKeyword?.trim() || inferPrimaryKeyword(topic),
     searchIntent: params.searchIntent || inferIntent(topic),
     opportunityId: params.opportunityId,
     targetAudience: params.targetAudience || site.seo?.targetAudience,
+    contentEntityId: `entity-${params.siteId}-${jobId}`,
     internalLinks: [],
     visualAssetIds: [],
     versions: [],
     publishingHistory: [],
     stageHistory: [{ stage: 'idea', at: now }],
     failures: [],
+    retryCount: 0,
+    maxRetries: 2,
     createdAt: now,
     updatedAt: now
   };
@@ -124,10 +200,12 @@ export function createUpdateProductionJob(params: {
   }
 
   const now = new Date().toISOString();
+  const jobId = newJobId();
   const job: ContentProductionJob = {
-    id: newJobId(),
+    id: jobId,
     siteId: params.siteId,
     stage: 'idea',
+    status: 'QUEUED',
     mode: params.mode || 'UPDATE',
     topic: article.title,
     primaryKeyword: article.fingerprint.primaryKeyword || inferPrimaryKeyword(article.title),
@@ -136,6 +214,7 @@ export function createUpdateProductionJob(params: {
     sourceArticleId: article.id,
     originalWordpressPostId: article.wpId,
     originalContentHash: article.fingerprint.contentHash,
+    contentEntityId: `entity-${params.siteId}-wp-${article.wpId || article.id}`,
     updateReason: params.updateReason || 'Performance / freshness recommendation',
     updatePlan: params.updatePlan,
     performanceSignals: params.performanceSignals || [],
@@ -159,6 +238,8 @@ export function createUpdateProductionJob(params: {
     publishingHistory: [],
     stageHistory: [{ stage: 'idea', at: now, note: 'update job created from existing article' }],
     failures: [],
+    retryCount: 0,
+    maxRetries: 2,
     createdAt: now,
     updatedAt: now
   };
@@ -178,92 +259,102 @@ export async function runResearchStage(
   job: ContentProductionJob,
   params: { userProvidedFacts?: string[]; urls?: string[]; forceRefreshUrls?: boolean } = {}
 ): Promise<ContentProductionJob> {
-  try {
-    const existingUrls = (job.research?.sources || [])
-      .map((source) => source.url)
-      .filter((url): url is string => Boolean(url && /^https?:\/\//i.test(url)));
-    const manualUrls = [...new Set([...(params.urls || []), ...existingUrls])];
+  return runGuardedStage(job, 'research', async (running) => {
+    try {
+      const existingUrls = (running.research?.sources || [])
+        .map((source) => source.url)
+        .filter((url): url is string => Boolean(url && /^https?:\/\//i.test(url)));
+      const manualUrls = [...new Set([...(params.urls || []), ...existingUrls])];
 
-    const { packet: research, session } = await runGroundedResearch({
-      siteId: job.siteId,
-      topic: job.topic,
-      primaryKeyword: job.primaryKeyword,
-      searchIntent: job.searchIntent,
-      targetAudience: job.targetAudience,
-      userProvidedFacts: params.userProvidedFacts,
-      manualUrls,
-      forceRefreshUrls: params.forceRefreshUrls
-    });
+      const { packet: research, session } = await runGroundedResearch({
+        siteId: running.siteId,
+        topic: running.topic,
+        primaryKeyword: running.primaryKeyword,
+        searchIntent: running.searchIntent,
+        targetAudience: running.targetAudience,
+        userProvidedFacts: params.userProvidedFacts,
+        manualUrls,
+        forceRefreshUrls: params.forceRefreshUrls
+      });
 
-    const hadDownstream = Boolean(
-      job.brief || job.draft || job.factCheck || job.seoPreflight || job.publishingChecklist
-    );
+      const hadDownstream = Boolean(
+        running.brief ||
+          running.draft ||
+          running.factCheck ||
+          running.seoPreflight ||
+          running.publishingChecklist
+      );
 
-    let next: ContentProductionJob = {
-      ...job,
-      research: { ...research, researchSessionId: session.id },
-      searchIntent: research.searchIntent
-    };
-
-    // Re-research invalidates artifacts that were grounded on the previous packet.
-    if (hadDownstream) {
-      next = {
-        ...next,
-        brief: undefined,
-        draft: undefined,
-        validation: undefined,
-        factCheck: undefined,
-        seoPreflight: undefined,
-        publishingChecklist: undefined,
-        visualBrief: undefined,
-        internalLinks: []
+      let next: ContentProductionJob = {
+        ...running,
+        research: { ...research, researchSessionId: session.id },
+        searchIntent: research.searchIntent
       };
-    }
 
-    if (canTransition(next.stage, 'researched')) {
-      next = advance(next, 'researched', hadDownstream ? 'research refreshed; downstream cleared' : undefined);
-    } else if (canTransition(next.stage, 'needs_revision')) {
-      next = advance(next, 'needs_revision', 'research refreshed');
-      next = advance(next, 'researched', 're-enter after research refresh');
-    } else {
-      throw new Error(`نمی‌توان پس از مرحلهٔ ${job.stage} تحقیق را تازه کرد.`);
-    }
+      if (hadDownstream) {
+        next = {
+          ...next,
+          brief: undefined,
+          draft: undefined,
+          validation: undefined,
+          factCheck: undefined,
+          seoPreflight: undefined,
+          publishingChecklist: undefined,
+          visualBrief: undefined,
+          internalLinks: []
+        };
+      }
 
-    return saveJob(next);
-  } catch (err: any) {
-    saveJob(
-      recordFailure(job, {
-        stage: 'research',
-        reason: err?.message || 'research failed',
-        retryable: err?.retryable !== false,
-        at: new Date().toISOString()
-      })
-    );
-    throw err;
-  }
+      if (canTransition(next.stage, 'researched')) {
+        next = advance(next, 'researched', hadDownstream ? 'research refreshed; downstream cleared' : undefined);
+      } else if (canTransition(next.stage, 'needs_revision')) {
+        next = advance(next, 'needs_revision', 'research refreshed');
+        next = advance(next, 'researched', 're-enter after research refresh');
+      } else {
+        throw new Error(`نمی‌توان پس از مرحلهٔ ${running.stage} تحقیق را تازه کرد.`);
+      }
+
+      return saveJob(next);
+    } catch (err: any) {
+      saveJob(
+        recordFailure(running, {
+          stage: 'research',
+          reason: err?.message || 'research failed',
+          retryable: err?.retryable !== false,
+          at: new Date().toISOString()
+        })
+      );
+      throw err;
+    }
+  });
 }
 
 export async function runBriefStage(job: ContentProductionJob): Promise<ContentProductionJob> {
   if (!job.research) throw new Error('پیش از ساخت بریف باید مرحلهٔ تحقیق اجرا شود.');
-  try {
-    const brief = await generateContentBrief({ research: job.research, decision: job.decision });
-    const check = validateContentBrief(brief);
-    if (!check.valid) {
-      throw new Error(`بریف معتبر نیست: ${check.problems.join(' | ')}`);
+  return runGuardedStage(job, 'brief', async (running) => {
+    try {
+      const brief = await generateContentBrief({ research: running.research!, decision: running.decision });
+      const check = validateContentBrief(brief);
+      if (!check.valid) {
+        throw new Error(`بریف معتبر نیست: ${check.problems.join(' | ')}`);
+      }
+      const next = advance(
+        { ...running, brief, internalLinks: brief.internalLinks, visualBrief: brief.visualRequirements },
+        'brief_ready'
+      );
+      return saveJob(next);
+    } catch (err: any) {
+      saveJob(
+        recordFailure(running, {
+          stage: 'brief',
+          reason: err?.message || 'brief failed',
+          retryable: err?.retryable !== false,
+          at: new Date().toISOString()
+        })
+      );
+      throw err;
     }
-    const next = advance({ ...job, brief, internalLinks: brief.internalLinks, visualBrief: brief.visualRequirements }, 'brief_ready');
-    return saveJob(next);
-  } catch (err: any) {
-    saveJob(
-      recordFailure(job, {
-        stage: 'brief',
-        reason: err?.message || 'brief failed',
-        retryable: err?.retryable !== false,
-        at: new Date().toISOString()
-      })
-    );
-    throw err;
-  }
+  });
 }
 
 export async function runDraftStage(
@@ -274,64 +365,67 @@ export async function runDraftStage(
   if (job.decision && blocksDrafting(job.decision)) {
     throw new Error('موتور تمایز این موضوع را تکراری تشخیص داده است؛ ابتدا تصمیم را بازبینی کنید.');
   }
-  if (
-    job.research.qualityGate?.status === 'BLOCKED' &&
-    !params.forceDespiteResearchGate
-  ) {
+  if (job.research.qualityGate?.status === 'BLOCKED' && !params.forceDespiteResearchGate) {
     throw new Error(
       `دروازهٔ کیفیت تحقیق مسدود است: ${(job.research.qualityGate.blocking || []).join(' | ') || 'مدارک ناکافی'}`
     );
   }
 
-  const drafting = saveJob(advance(job, 'drafting'));
-  try {
-    const version = drafting.versions.reduce((max, row) => Math.max(max, row.version), 0) + 1;
-    const draft = await generateArticleDraft({
-      brief: drafting.brief!,
-      research: drafting.research!,
-      jobId: drafting.id,
-      version,
-      regenerationNote: params.regenerationNote,
-      previousContent: drafting.draft?.content
-    });
+  return runGuardedStage(job, 'draft', async (running) => {
+    const drafting = saveJob(advance(running, 'drafting'));
+    try {
+      const version = drafting.versions.reduce((max, row) => Math.max(max, row.version), 0) + 1;
+      const draft = await generateArticleDraft({
+        brief: drafting.brief!,
+        research: drafting.research!,
+        jobId: drafting.id,
+        version,
+        regenerationNote: params.regenerationNote,
+        previousContent: drafting.draft?.content
+      });
 
-    const validation = validateArticleDraft({
-      draft,
-      brief: drafting.brief!,
-      research: drafting.research,
-      decision: drafting.decision
-    });
+      const validation = validateArticleDraft({
+        draft,
+        brief: drafting.brief!,
+        research: drafting.research,
+        decision: drafting.decision
+      });
 
-    const next = advance({ ...drafting, draft, validation }, 'draft_ready');
-    appendVersion(next, {
-      action: 'AI_GENERATED',
-      source: 'gemini',
-      title: draft.title,
-      content: draft.content,
-      excerpt: draft.excerpt,
-      metaDescription: draft.metaDescription,
-      briefVersion: drafting.brief!.version,
-      validation
-    });
-    return saveJob(next);
-  } catch (err: any) {
-    // Stage rolls back to brief_ready so the studio does not sit in "drafting".
-    saveJob(
-      recordFailure({ ...drafting, stage: 'brief_ready' }, {
-        stage: 'draft',
-        reason: err?.message || 'draft failed',
-        retryable: err?.retryable !== false,
-        at: new Date().toISOString()
-      })
-    );
-    throw err;
-  }
+      const next = advance({ ...drafting, draft, validation }, 'draft_ready');
+      appendVersion(next, {
+        action: 'AI_GENERATED',
+        source: 'gemini',
+        title: draft.title,
+        content: draft.content,
+        excerpt: draft.excerpt,
+        metaDescription: draft.metaDescription,
+        briefVersion: drafting.brief!.version,
+        validation
+      });
+      return saveJob(next);
+    } catch (err: any) {
+      saveJob(
+        recordFailure(
+          { ...drafting, stage: 'brief_ready' },
+          {
+            stage: 'draft',
+            reason: err?.message || 'draft failed',
+            retryable: err?.retryable !== false,
+            at: new Date().toISOString()
+          }
+        )
+      );
+      throw err;
+    }
+  });
 }
 
 export async function runFactCheckStage(job: ContentProductionJob): Promise<ContentProductionJob> {
   if (!job.draft || !job.research) throw new Error('پیش از بررسی صحت باید پیش‌نویس آماده باشد.');
-  const factCheck = await factCheckDraft({ draft: job.draft, research: job.research });
-  return saveJob(advance({ ...job, factCheck }, 'fact_checked'));
+  return runGuardedStage(job, 'fact_check', async (running) => {
+    const factCheck = await factCheckDraft({ draft: running.draft!, research: running.research! });
+    return saveJob(advance({ ...running, factCheck }, 'fact_checked'));
+  });
 }
 
 export function runSeoStage(
@@ -339,14 +433,16 @@ export function runSeoStage(
   params: { featuredImageUrl?: string; featuredImageAlt?: string } = {}
 ): ContentProductionJob {
   if (!job.draft || !job.brief) throw new Error('پیش از پیش‌پرواز سئو باید پیش‌نویس آماده باشد.');
-  const seoPreflight = runSeoPreflight({
-    draft: job.draft,
-    brief: job.brief,
-    decision: job.decision,
-    featuredImageUrl: params.featuredImageUrl,
-    featuredImageAlt: params.featuredImageAlt
+  return runGuardedStageSync(job, 'seo', (running) => {
+    const seoPreflight = runSeoPreflight({
+      draft: running.draft!,
+      brief: running.brief!,
+      decision: running.decision,
+      featuredImageUrl: params.featuredImageUrl,
+      featuredImageAlt: params.featuredImageAlt
+    });
+    return saveJob(advance({ ...running, seoPreflight }, 'seo_ready'));
   });
-  return saveJob(advance({ ...job, seoPreflight }, 'seo_ready'));
 }
 
 export function moveToReview(job: ContentProductionJob): ContentProductionJob {

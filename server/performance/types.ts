@@ -265,6 +265,8 @@ export interface PerformanceOverview {
   improveRecommendations: ContentActionRecommendation[];
   hasSearchPerformance: boolean;
   hasAnalytics: boolean;
+  needsSync?: boolean;
+  lastSyncedAt?: string;
 }
 
 export interface PerformanceStore {

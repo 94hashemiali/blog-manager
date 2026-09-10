@@ -308,6 +308,7 @@ await run('multi-site isolation for research sessions', () => {
     id: 'rs-a',
     siteId: SITE_A,
     topic: 'چادر',
+    status: 'READY' as const,
     plan: {
       id: 'plan-a',
       siteId: SITE_A,

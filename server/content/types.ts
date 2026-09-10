@@ -493,10 +493,22 @@ export interface StageFailure {
   at: string;
 }
 
+export type JobOperationalStatus =
+  | 'QUEUED'
+  | 'RUNNING'
+  | 'PAUSED'
+  | 'FAILED'
+  | 'COMPLETED'
+  | 'CANCELLED'
+  | 'INTERRUPTED'
+  | 'RECOVERY_REQUIRED';
+
 export interface ContentProductionJob {
   id: string;
   siteId: string;
   stage: ProductionStage;
+  /** Operational status — distinct from pipeline stage. */
+  status: JobOperationalStatus;
   /** CREATE is the default; UPDATE/MERGE preserve an existing article identity. */
   mode: 'CREATE' | 'UPDATE' | 'MERGE';
   topic: string;
@@ -507,6 +519,7 @@ export interface ContentProductionJob {
   sourceArticleId?: string | number;
   originalWordpressPostId?: number;
   originalContentHash?: string;
+  contentEntityId?: string;
   updateReason?: string;
   updatePlan?: {
     whyUpdateNeeded: string[];
@@ -536,6 +549,13 @@ export interface ContentProductionJob {
   localArticleId?: string;
   stageHistory: Array<{ stage: ProductionStage; at: string; note?: string }>;
   failures: StageFailure[];
+  retryCount: number;
+  maxRetries: number;
+  lastError?: string;
+  cancelRequestedAt?: string;
+  cancelledAt?: string;
+  startedAt?: string;
+  completedAt?: string;
   createdAt: string;
   updatedAt: string;
 }

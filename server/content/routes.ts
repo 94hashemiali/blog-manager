@@ -24,6 +24,12 @@ import {
   runSeoStage
 } from './pipeline.js';
 import { deleteJob, getJob, listJobs, listPublishingHistory, saveJob } from './store.js';
+import {
+  assertJobNotCancelled,
+  requestCancelJob,
+  recoverStaleRunningJobs,
+  resumeInterruptedJob
+} from './jobOps.js';
 import type { ContentProductionJob, PublishOperation, SearchIntent } from './types.js';
 
 const PUBLISH_OPERATIONS: PublishOperation[] = [
@@ -76,6 +82,23 @@ function resolveJob(req: Request, res: Response): ContentProductionJob | null {
   return job;
 }
 
+/** Like resolveJob, but rejects cancelled / interrupted jobs before mutating stages. */
+function resolveRunnableJob(req: Request, res: Response): ContentProductionJob | null {
+  const job = resolveJob(req, res);
+  if (!job) return null;
+  try {
+    assertJobNotCancelled(job);
+  } catch (err: any) {
+    fail(res, 409, err?.message || 'این کار لغو شده است.');
+    return null;
+  }
+  if (job.status === 'INTERRUPTED' || job.status === 'RECOVERY_REQUIRED') {
+    fail(res, 409, 'این کار قطع شده است؛ ابتدا Resume یا Recover را اجرا کنید.');
+    return null;
+  }
+  return job;
+}
+
 function jobResponse(job: ContentProductionJob) {
   return { success: true, job, progress: describeProgress(job) };
 }
@@ -87,6 +110,7 @@ productionRouter.get('/:siteId/jobs', (req, res) => {
   const jobs = listJobs(req.params.siteId).map((job) => ({
     id: job.id,
     stage: job.stage,
+    status: job.status,
     topic: job.topic,
     primaryKeyword: job.primaryKeyword,
     searchIntent: job.searchIntent,
@@ -98,6 +122,8 @@ productionRouter.get('/:siteId/jobs', (req, res) => {
     versionCount: job.versions.length,
     wordpressPostId: job.wordpressPostId,
     publishedUrl: job.publishedUrl,
+    retryCount: job.retryCount,
+    lastError: job.lastError,
     updatedAt: job.updatedAt
   }));
   res.json({ success: true, jobs });
@@ -126,6 +152,28 @@ productionRouter.get('/:siteId/jobs/:jobId', (req, res) => {
   if (job) res.json(jobResponse(job));
 });
 
+productionRouter.post('/:siteId/jobs/:jobId/cancel', (req, res) => {
+  const job = resolveJob(req, res);
+  if (!job) return;
+  res.json(jobResponse(requestCancelJob(job)));
+});
+
+productionRouter.post('/:siteId/jobs/:jobId/resume', (req, res) => {
+  const job = resolveJob(req, res);
+  if (!job) return;
+  try {
+    res.json(jobResponse(resumeInterruptedJob(job)));
+  } catch (err: any) {
+    fail(res, 409, err?.message || 'ازسرگیری ناموفق بود.');
+  }
+});
+
+productionRouter.post('/:siteId/jobs/recover', (req, res) => {
+  if (!db.getSiteById(req.params.siteId)) return fail(res, 404, 'سایت یافت نشد.');
+  const recovered = recoverStaleRunningJobs(req.params.siteId);
+  res.json({ success: true, recovered: recovered.length, jobs: recovered.map((job) => job.id) });
+});
+
 productionRouter.delete('/:siteId/jobs/:jobId', (req, res) => {
   const job = resolveJob(req, res);
   if (!job) return;
@@ -138,7 +186,7 @@ productionRouter.delete('/:siteId/jobs/:jobId', (req, res) => {
 productionRouter.post(
   '/:siteId/jobs/:jobId/research',
   asyncRoute(async (req, res) => {
-    const job = resolveJob(req, res);
+    const job = resolveRunnableJob(req, res);
     if (!job) return;
     try {
       const next = await runResearchStage(job, {
@@ -156,7 +204,7 @@ productionRouter.post(
 productionRouter.post(
   '/:siteId/jobs/:jobId/brief',
   asyncRoute(async (req, res) => {
-    const job = resolveJob(req, res);
+    const job = resolveRunnableJob(req, res);
     if (!job) return;
     try {
       const next = await runBriefStage(job);
@@ -170,7 +218,7 @@ productionRouter.post(
 productionRouter.post(
   '/:siteId/jobs/:jobId/draft',
   asyncRoute(async (req, res) => {
-    const job = resolveJob(req, res);
+    const job = resolveRunnableJob(req, res);
     if (!job) return;
     try {
       const next = await runDraftStage(job, { regenerationNote: req.body?.regenerationNote });
@@ -197,7 +245,7 @@ productionRouter.post('/:siteId/jobs/:jobId/validate', (req, res) => {
 productionRouter.post(
   '/:siteId/jobs/:jobId/fact-check',
   asyncRoute(async (req, res) => {
-    const job = resolveJob(req, res);
+    const job = resolveRunnableJob(req, res);
     if (!job) return;
     if (!job.draft || !job.research) return fail(res, 409, 'برای بررسی صحت، پیش‌نویس و بستهٔ تحقیق لازم است.');
     try {
@@ -210,7 +258,7 @@ productionRouter.post(
 );
 
 productionRouter.post('/:siteId/jobs/:jobId/seo-preflight', (req, res) => {
-  const job = resolveJob(req, res);
+  const job = resolveRunnableJob(req, res);
   if (!job) return;
   if (!job.draft || !job.brief) return fail(res, 409, 'پیش‌نویس یا بریف موجود نیست.');
   try {
@@ -442,7 +490,7 @@ productionRouter.post('/:siteId/jobs/:jobId/publishing-checklist', (req, res) =>
 productionRouter.post(
   '/:siteId/jobs/:jobId/publish',
   asyncRoute(async (req, res) => {
-    const job = resolveJob(req, res);
+    const job = resolveRunnableJob(req, res);
     if (!job) return;
 
     const operation = String(req.body?.operation || 'SAVE_LOCAL_DRAFT') as PublishOperation;

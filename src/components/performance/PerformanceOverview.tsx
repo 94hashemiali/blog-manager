@@ -46,6 +46,11 @@ export default function PerformanceOverviewPanel({ overview }: { overview: Perfo
           Search Console متصل نیست — نمودار کلیک/نمایش و رتبه ساخته نمی‌شود. پس از اتصال، روندها و فرصت‌های جستجو اینجا ظاهر می‌شوند.
         </div>
       )}
+      {(overview as any).needsSync && (
+        <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+          دادهٔ عملکرد همگام نشده. GET فقط دادهٔ ذخیره‌شده را می‌خواند — «همگام‌سازی عملکرد» را بزنید.
+        </div>
+      )}
     </section>
   );
 }

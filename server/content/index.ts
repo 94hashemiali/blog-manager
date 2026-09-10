@@ -21,6 +21,7 @@ export { factCheckDraft, extractClaims, classifyClaimLocally } from './factcheck
 export { runSeoPreflight } from './seoPreflight.js';
 export { suggestInternalLinks, auditDraftLinks, MAX_INTERNAL_LINKS } from './linking.js';
 export { buildVisualBrief, toVisualEngineRequest } from './visualBrief.js';
+export { requestCancelJob, recoverStaleRunningJobs, resumeInterruptedJob, markJobRunning, markJobFailed, markJobCompleted, markJobStageIdle, assertJobNotCancelled } from './jobOps.js';
 export { buildPublishingChecklist, resolvePublishOperation, runPublishOperation } from './publishing.js';
 export { appendVersion, getVersion, invalidateChecksAfterDraftChange, restoreVersion } from './versions.js';
 export { recommendNextArticles } from './recommendations.js';

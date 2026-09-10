@@ -152,10 +152,21 @@ export interface ResearchProviderStatus {
   configured: boolean;
 }
 
+export type ResearchSessionStatus = 'DRAFT' | 'RESEARCHING' | 'READY' | 'STALE' | 'INVALIDATED';
+
+export interface SourceQualityAssessment {
+  quality: 'high' | 'medium' | 'low' | 'unknown';
+  confidence: ConfidenceLevel;
+  reasons: string[];
+}
+
+export type ClaimSupportStrength = 'STRONG' | 'MODERATE' | 'WEAK' | 'NONE' | 'CONFLICTED';
+
 export interface ResearchSession {
   id: string;
   siteId: string;
   topic: string;
+  status: ResearchSessionStatus;
   plan: ResearchPlan;
   sources: ResearchSourceDocument[];
   extractedEvidence: ExtractedEvidence[];
@@ -166,6 +177,8 @@ export interface ResearchSession {
   providers: ResearchProviderStatus[];
   researchConfidence: ConfidenceLevel;
   packetEvidence: EvidenceItem[];
+  contentEntityId?: string;
+  productionJobId?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -177,7 +190,7 @@ export interface ResearchStore {
   sessions: ResearchSession[];
 }
 
-export const RESEARCH_SCHEMA_VERSION = 1;
+export const RESEARCH_SCHEMA_VERSION = 2;
 
 /** Map research source kinds onto the production EvidenceSourceType. */
 export function toEvidenceSourceType(kind: ResearchSourceKind): EvidenceSourceType {

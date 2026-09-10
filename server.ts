@@ -14,6 +14,10 @@ import { createVisualJob, updateVisualJob, getVisualJob } from './server/visual/
 import { productionRouter } from './server/content/index.js';
 import { performanceRouter } from './server/performance/index.js';
 import { researchRouter } from './server/research/index.js';
+import { opsRouter } from './server/ops/routes.js';
+import { sanitizeSite } from './server/http.js';
+import { buildHealthPayload } from './server/providers/status.js';
+import { logger, newRequestId } from './server/logger.js';
 import {
   syncSiteIntelligence,
   getContentIndex,
@@ -32,12 +36,36 @@ const PORT = 3000;
 
 app.use(express.json({ limit: '10mb' }));
 
+app.use((req, res, next) => {
+  const requestId = (req.headers['x-request-id'] as string) || newRequestId();
+  (req as any).requestId = requestId;
+  res.setHeader('x-request-id', requestId);
+  const started = Date.now();
+  res.on('finish', () => {
+    if (req.path.startsWith('/api/')) {
+      logger.info('http.request', {
+        requestId,
+        operation: `${req.method} ${req.path}`,
+        durationMs: Date.now() - started,
+        result: String(res.statusCode)
+      });
+    }
+  });
+  next();
+});
+
+app.get('/api/health', (req, res) => {
+  const siteId = typeof req.query.siteId === 'string' ? req.query.siteId : undefined;
+  res.json({ success: true, ...buildHealthPayload(siteId) });
+});
+
 // Content Production OS routes live in server/content/routes.ts.
 app.use('/api/production', productionRouter);
 // Content Performance Intelligence routes live in server/performance/routes.ts.
 app.use('/api/performance', performanceRouter);
 // Real Research & Evidence Intelligence routes live in server/research/routes.ts.
 app.use('/api/research', researchRouter);
+app.use('/api/ops', opsRouter);
 
 const DEFAULT_WP_URL = 'https://madanicamp.com';
 
@@ -1126,7 +1154,7 @@ app.post('/api/sites', async (req, res) => {
   // Trigger non-blocking site intelligence analysis
   analyzeSiteIntelligence(id).catch((err) => console.warn('Background site intelligence failed:', err));
 
-  res.json({ success: true, site: newSite, message: 'وب‌سایت جدید با موفقیت اضافه شد.' });
+  res.json({ success: true, site: sanitizeSite(newSite), message: 'وب‌سایت جدید با موفقیت اضافه شد.' });
 });
 
 app.put('/api/sites/:id', (req, res) => {
@@ -1157,7 +1185,7 @@ app.put('/api/sites/:id', (req, res) => {
   };
 
   db.saveSites(sites);
-  res.json({ success: true, site: sites[idx], message: 'تنظیمات وب‌سایت بروزرسانی شد.' });
+  res.json({ success: true, site: sanitizeSite(sites[idx]), message: 'تنظیمات وب‌سایت بروزرسانی شد.' });
 });
 
 app.delete('/api/sites/:id', (req, res) => {

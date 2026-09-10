@@ -1,5 +1,6 @@
 import crypto from 'crypto';
 import { db } from '../db.js';
+import { getResearchSession } from '../research/store.js';
 import { appendPublishingHistory } from './store.js';
 import type {
   ChecklistItem,
@@ -154,6 +155,59 @@ export function buildPublishingChecklist(params: {
         contradicted > 0
       )
     );
+  }
+
+  // Research quality gate
+  if (job.research?.qualityGate) {
+    const gate = job.research.qualityGate;
+    items.push(
+      item(
+        'research_quality',
+        'کیفیت تحقیق',
+        gate.status === 'PASS' ? 'pass' : gate.status === 'WARNING' ? 'warn' : 'fail',
+        gate.reasons.join(' | ') || gate.status,
+        gate.status === 'BLOCKED'
+      )
+    );
+  } else if (job.research) {
+    items.push(item('research_quality', 'کیفیت تحقیق', 'warn', 'دروازهٔ کیفیت تحقیق موجود نیست.', false));
+  } else {
+    items.push(item('research_quality', 'کیفیت تحقیق', 'unknown', 'بستهٔ تحقیق موجود نیست.', true));
+  }
+
+  // High-risk unsupported claims from research packet
+  const highRiskUnsupported = (job.research?.claims || []).filter(
+    (claim) => claim.highRisk && (claim.status === 'UNSUPPORTED' || claim.status === 'NEEDS_VERIFICATION')
+  ).length;
+  if (highRiskUnsupported > 0) {
+    items.push(
+      item(
+        'high_risk_claims',
+        'ادعاهای پرریسک بدون مدرک',
+        'fail',
+        `${highRiskUnsupported} ادعای پرریسک بدون پشتیبانی کافی.`,
+        true
+      )
+    );
+  }
+
+  // Linked research session freshness (source hash / invalidation)
+  const researchSessionId = job.research?.researchSessionId;
+  if (researchSessionId) {
+    const session = getResearchSession(job.siteId, researchSessionId);
+    if (session?.status === 'STALE' || session?.status === 'INVALIDATED') {
+      items.push(
+        item(
+          'research_freshness',
+          'تازگی تحقیق',
+          'fail',
+          session.status === 'STALE'
+            ? 'منبع تحقیق پس از جلسه تغییر کرده؛ تحقیق را تازه کنید.'
+            : 'جلسهٔ تحقیق نامعتبر است؛ تحقیق را دوباره اجرا کنید.',
+          true
+        )
+      );
+    }
   }
 
   // SEO preflight

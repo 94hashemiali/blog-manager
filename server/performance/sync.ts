@@ -201,33 +201,36 @@ export function syncPerformanceForSite(siteId: string): {
 
 export function getPerformanceOverview(siteId: string): PerformanceOverview {
   const store = loadPerformanceStore(siteId);
-  if (store.records.length === 0) {
-    return syncPerformanceForSite(siteId).overview;
-  }
+  // GET is read-only — never sync here. Empty store → needs_data until POST /sync.
   const counts = {
     healthy: store.records.filter((record) => record.decay.status === 'HEALTHY').length,
     watch: store.records.filter((record) => record.decay.status === 'WATCH').length,
     declining: store.records.filter((record) => record.decay.status === 'DECLINING').length,
     decayed: store.records.filter((record) => record.decay.status === 'DECAYED').length,
-    needsData: store.records.filter((record) => record.decay.status === 'INSUFFICIENT_DATA').length,
+    needsData:
+      store.records.length === 0
+        ? 0
+        : store.records.filter((record) => record.decay.status === 'INSUFFICIENT_DATA').length,
     total: store.records.length
   };
   const actions = buildNextActionsOverview({
     siteId,
     opportunities: store.opportunities,
     decayCounts: counts,
-    providers: store.providers
+    providers: store.providers.length ? store.providers : defaultProviderStatuses()
   });
   return {
     siteId,
     assessedAt: store.lastSyncedAt || new Date().toISOString(),
-    overall: actions.overall,
+    overall: store.records.length === 0 ? 'needs_data' : actions.overall,
     counts,
-    providers: store.providers,
+    providers: store.providers.length ? store.providers : defaultProviderStatuses(),
     topPriorities: actions.topPriorities,
     createRecommendations: actions.createRecommendations,
     improveRecommendations: actions.improveRecommendations,
     hasSearchPerformance: actions.hasSearchPerformance,
-    hasAnalytics: actions.hasAnalytics
+    hasAnalytics: actions.hasAnalytics,
+    needsSync: store.records.length === 0,
+    lastSyncedAt: store.lastSyncedAt
   };
 }

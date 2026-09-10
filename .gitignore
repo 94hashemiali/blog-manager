@@ -7,3 +7,10 @@ coverage/
 .env*
 !.env.example
 data/generated-images/
+data/content-index-*.json
+data/*.bak
+data/*.tmp
+# Runtime state: sites.json holds WordPress application passwords
+data/sites.json
+data/competitors.json
+.idea/

@@ -1,9 +1,9 @@
 import express from 'express';
 import path from 'path';
 import { createServer as createViteServer } from 'vite';
-import { GoogleGenAI } from '@google/genai';
 import dotenv from 'dotenv';
 import { db, DEFAULT_SITE_ID } from './server/db.js';
+import { generateGeminiText, extractJson } from './server/geminiClient.js';
 import { discoverKeywordOpportunities, analyzeCompetitors, calculatePriorityScore } from './server/seoEngine.js';
 import { checkDuplication } from './server/duplicationGuard.js';
 import { generateArticleWithDifferenceEngine } from './server/articleEngine.js';
@@ -11,6 +11,16 @@ import { generateVisualAsset, generateMasterVisualAsset, generateArticleImagePla
 import { analyzeSiteIntelligence } from './server/siteIntelligence.js';
 import { resolveGeneratedImagePath } from './server/visual/storage.js';
 import { createVisualJob, updateVisualJob, getVisualJob } from './server/visual/jobs.js';
+import {
+  syncSiteIntelligence,
+  getContentIndex,
+  buildArticleBrief,
+  createIntelligenceJob,
+  updateIntelligenceJob,
+  getIntelligenceJob,
+  applySyncProgress,
+  SYNC_STAGES
+} from './server/intelligence/index.js';
 
 dotenv.config();
 
@@ -24,18 +34,6 @@ const DEFAULT_WP_URL = 'https://madanicamp.com';
 // Cache in-memory for fast responses
 let cachedCategories: any[] = [];
 let lastFetchedTime = 0;
-
-// Lazy initialize Gemini AI
-let aiClient: GoogleGenAI | null = null;
-function getAI(): GoogleGenAI | null {
-  if (!process.env.GEMINI_API_KEY) {
-    return null;
-  }
-  if (!aiClient) {
-    aiClient = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
-  }
-  return aiClient;
-}
 
 // Fallback seed posts from madanicamp.com in case of network timeouts
 const SEED_POSTS = [
@@ -226,12 +224,6 @@ const SEED_POSTS = [
 // Initialize in-memory cache with both published and draft seed posts
 let cachedPosts: any[] = [...SEED_POSTS];
 
-/**
- * Robust AI helper with multiple model fallback:
- * Priority 1: gemini-3.1-flash-lite (fast, high availability)
- * Priority 2: gemini-3.6-flash (high quality reasoning)
- * Priority 3: gemini-3.8-flash (additional capability)
- */
 async function callGemini(
   prompt: string,
   options: {
@@ -240,44 +232,14 @@ async function callGemini(
     models?: string[];
   } = {}
 ): Promise<string> {
-  const ai = getAI();
-  if (!ai) {
-    throw new Error('کلید GEMINI_API_KEY یافت نشد. لطفاً در بخش Secrets آن را تنظیم کنید.');
-  }
-
-  const modelCandidates = options.models || [
-    'gemini-3.1-flash-lite',
-    'gemini-3.6-flash',
-    'gemini-3.8-flash'
-  ];
-
-  let lastError: any = null;
-  for (const model of modelCandidates) {
-    try {
-      const config: any = {};
-      if (options.systemInstruction) {
-        config.systemInstruction = options.systemInstruction;
-      }
-      if (options.responseMimeType) {
-        config.responseMimeType = options.responseMimeType;
-      }
-
-      const result = await ai.models.generateContent({
-        model,
-        contents: prompt,
-        config: Object.keys(config).length > 0 ? config : undefined
-      });
-
-      if (result.text && result.text.trim()) {
-        return result.text.trim();
-      }
-    } catch (err: any) {
-      console.warn(`Gemini model ${model} attempt failed:`, err.message);
-      lastError = err;
-    }
-  }
-
-  throw lastError || new Error('خطا در پردازش با مدل‌های هوش مصنوعی');
+  const result = await generateGeminiText({
+    prompt,
+    systemInstruction: options.systemInstruction,
+    responseMimeType: options.responseMimeType,
+    models: options.models,
+    stage: 'optimize'
+  });
+  return result.text;
 }
 
 /**
@@ -321,76 +283,6 @@ function extractJsonFromText(rawText: string): any {
   return null;
 }
 
-/**
- * High-quality fallback article synthesizer for Madani Camp
- */
-function synthesizeFallbackArticle(
-  topic: string,
-  tone: string,
-  targetAudience: string,
-  keywords: string[],
-  includeFaq: boolean
-) {
-  const cleanTitle = topic.includes('مدنی') ? topic : `${topic} - راهنمای تخصصی مدنی کمپ`;
-  const cleanSlug = topic
-    .replace(/[^\u0600-\u06FFa-zA-Z0-9\s-]/g, '')
-    .trim()
-    .replace(/\s+/g, '-')
-    .slice(0, 60);
-  const kwList = keywords.length > 0 ? keywords : ['کمپینگ', 'کوهنوردی', 'مدنی کمپ', 'تجهیزات سفر'];
-
-  return {
-    title: cleanTitle,
-    slug: cleanSlug,
-    metaDescription: `راهنمای جامع و تخصصی ${topic} در بلاگ مدنی کمپ. بررسی فاکتورهای کلیدی انتخاب، نکات طلایی ایمنی و بهترین تجهیزات کوهنوردی و طبیعت‌گردی.`,
-    excerpt: `در این راهنمای جامع از بلاگ مدنی کمپ، به بررسی دقیق و کاربردی ${topic} می‌پردازیم تا در برنامه‌های کوهنوردی و کمپینگ انتخابی هوشمندانه داشته باشید.`,
-    content: `# ${cleanTitle}
-
-طبیعت‌گردی و کوهنوردی فرصتی بی‌نظیر برای رهایی از شلوغی روزمره و تجربه آرامش بکر کوهستان است. اما لذت و ایمنی هر سفر بیش از هر چیز وابسته به آگاهی، برنامه‌ریزی دقیق و استفاده از تجهیزات استاندارد است. در این مقاله به بررسی موشکافانه **${topic}** می‌پردازیم.
-
----
-
-## ۱. چرا توجه به ${topic} در سفر و کمپینگ حیاتی است؟
-هنگامی که کیلومترها از امکانات شهری فاصله دارید، هر وسیله‌ای در کوله‌پشتی شما باید وزنی مهندسی‌شده و کارایی صددرصد تضمین‌شده داشته باشد. انتخاب نادرست نه تنها راندمان شما را کاهش می‌دهد، بلکه می‌تواند در شرایط بحرانی سلامت شما را به خطر بیندازد.
-
-### نکات طلایی مدنی کمپ:
-- **تست و آزمون قبلی:** همیشه قبل از ورود به طبیعت، کارکرد تجهیزات جدید را بررسی کنید.
-- **اصل سبک‌باری:** بهینه‌سازی نسبت وزن به استحکام تجهیزات، انرژی پیمایش شما را تا ۴۰٪ حفظ می‌کند.
-- **لایه‌بندی و ایمنی:** همواره تجهیزات پشتیبان و متناسب با سردترین دمای پیش‌بینی‌شده همراه داشته باشید.
-
----
-
-## ۲. معیارهای کلیدی انتخاب بر اساس استانداردهای روز
-برای ارزیابی صحیح، این ۳ شاخص مهم را در نظر داشته باشید:
-
-1. **متریال ضدسایش و ارتقایافته:** پارچه‌های مقاوم با بافت ریپ‌استاپ، پوشش‌های سیلیکونی یا زیره‌های ضدلغزش Vibram دوام ابزار شما را در صخره‌ها تضمین می‌کنند.
-2. **ارگونومی و توزیع وزن:** تطابق با آناتومی بدن در پیمایش‌های طولانی از خستگی زودهنگام جلوگیری می‌کند.
-3. **سازگاری آب و هوایی:** ضریب مقاومت در برابر رطوبت و باد را متناسب با منطقه هدف انتخاب کنید.
-
----
-
-## ۳. جمع‌بندی و راهنمایی کارشناسان مدنی کمپ
-انتخاب دقیق و آگاهانه تجهیزات ${topic} تفاوت میان یک پیمایش دشوار و یک خاطره ماندگار است. کارشناسان فنی مدنی کمپ در تمام مراحل مشاوره و انتخاب بهترین مدل در کنار شما هستند.`,
-    tags: kwList,
-    faq: includeFaq
-      ? [
-          {
-            question: `مهم‌ترین فاکتور در انتخاب ${topic} چیست؟`,
-            answer: `تناسب وزن، مقاومت متریال در برابر شرایط جوی و طراحی ارگونومیک مهم‌ترین معیارها هستند.`
-          },
-          {
-            question: `آیا این تجهیزات برای کمپینگ در ۴ فصل مناسب است؟`,
-            answer: `بسته به مشخصات دمایی و ساختار دوپوش یا تک‌پوش، توصیه می‌شود متناسب با فصل مناسب اقدام نمایید.`
-          },
-          {
-            question: `چگونه می‌توان از اصالت و خدمات پس از فروش مدنی کمپ مطمئن شد؟`,
-            answer: `کلیه محصولات دارای گارانتی اصالت کالا و پشتیبانی تخصصی کوهنوردی و طبیعت‌گردی می‌باشند.`
-          }
-        ]
-      : []
-  };
-}
-
 // 1. Health and Status check for madanicamp.com
 app.get('/api/wp/status', async (req, res) => {
   try {
@@ -410,7 +302,7 @@ app.get('/api/wp/status', async (req, res) => {
         responseTimeMs: duration,
         totalPosts: parseInt(totalPosts, 10),
         status: 'online',
-        message: 'اتصال به وب‌سایت madanicamp.com با موفقیت برقرار است.'
+        message: 'اتصال به وردپرس برقرار است.'
       });
     } else {
       res.json({
@@ -710,49 +602,26 @@ app.post('/api/ai/generate', async (req, res) => {
     return res.status(400).json({ error: 'موضوع مقاله باید مشخص شود.' });
   }
 
-  const systemInstruction = `شما دستیار ارشد تولید محتوا و سئوی تخصصی برای وب‌سایت «مدنی کمپ» (madanicamp.com) هستید.
-مدنی کمپ فروشگاه و مرجع تخصصی تجهیزات کمپینگ، کوهنوردی، طبیعت‌گردی، کفش، چادر، کیسه خواب و وسایل بقا در طبیعت در ایران است.
-زبان نگارش: فارسی سلیس، روان، جذاب، کاملاً صحیح با رعایت نیم‌فاصله‌ها و بدون کلمات رباتیک و تکراری.
-فرمت خروجی باید کاملاً ساختاریافته در قالب JSON با کلیدهای زیر باشد:
-{
-  "title": "یک عنوان بسیار جذاب و سئو شده برای مقاله",
-  "slug": "slug-انگلیسی-کوتاه-یا-فارسی",
-  "metaDescription": "توضیحات متای ۱۲۰ تا ۱۵۵ کاراکتری بسیار ترغیب‌کننده و شامل کلمات کلیدی",
-  "excerpt": "چکیده کوتاه و مقدمه تحریک‌کننده در ۱ الی ۲ پاراگراف",
-  "content": "متن کامل مقاله به فرمت Markdown غنی با عناوین ## و ###، لیست‌های بولت‌دار، نکات طلایی مدنی کمپ، جدول یا راهنمای خرید و جمع‌بندی",
-  "tags": ["تگ۱", "تگ۲", "تگ۳", "تگ۴", "تگ۵"],
-  "faq": [
-    {"question": "سوال متداول ۱؟", "answer": "پاسخ کوتاه و کاربردی"},
-    {"question": "سوال متداول ۲؟", "answer": "پاسخ کوتاه و کاربردی"}
-  ]
-}`;
-
-  const userPrompt = `لطفاً یک مقاله تخصصی، کامل و جذاب بلاگ برای سایت مدنی کمپ درباره موضوع زیر بنویسید:
-موضوع: ${topic}
-لحن: ${tone}
-مخاطب هدف: ${targetAudience}
-کلمات کلیدی پیشنهادی: ${keywords.join('، ') || 'تجهیزات کمپینگ، مدنی کمپ'}
-شامل سوالات متداول: ${includeFaq ? 'بله' : 'خیر'}
-
-خروجی حتماً باید صرفاً یک آبجکت JSON معتبر و بدون هیچ توضیحات اضافی قبل یا بعد از آن باشد.`;
-
   try {
-    const rawText = await callGemini(userPrompt, {
-      systemInstruction,
-      responseMimeType: 'application/json'
+    const result = await generateArticleWithDifferenceEngine({
+      siteId: req.body.siteId || DEFAULT_SITE_ID,
+      topic,
+      tone,
+      targetAudience,
+      keywords,
+      includeFaq
     });
-
-    const parsed = extractJsonFromText(rawText);
-    if (parsed && parsed.title && parsed.content) {
-      return res.json({ success: true, article: parsed });
-    }
+    return res.json({ success: true, article: result.article, brief: result.brief });
   } catch (err: any) {
-    console.warn('AI Generate primary call failed, using domain article synthesizer:', err.message);
+    return res.status(422).json({
+      success: false,
+      stage: err.stage || 'article_generation',
+      errorCode: err.errorCode || 'article_generation_failed',
+      error: err.message,
+      message: err.message,
+      retryable: err.retryable !== false
+    });
   }
-
-  // Guaranteed fallback: Generate a richly structured Madani Camp article
-  const fallbackArticle = synthesizeFallbackArticle(topic, tone, targetAudience, keywords, includeFaq);
-  return res.json({ success: true, article: fallbackArticle, note: 'تولید شده با موتور پشتیبان تخصصی مدنی کمپ' });
 });
 
 // 7. AI Optimization & Suggestions (Titles, Meta, FAQs, Grammar, Full Auto SEO Suite)
@@ -783,36 +652,29 @@ ${content?.slice(0, 3000) || 'محتوایی ثبت نشده'}
 
       try {
         const raw = await callGemini(prompt, { responseMimeType: 'application/json' });
-        const parsedData = extractJsonFromText(raw);
+        const parsedData = extractJsonFromText(raw) || extractJson(raw);
         if (parsedData) {
           return res.json({ success: true, result: parsedData });
         }
       } catch (err: any) {
-        console.warn('auto_seo_suite AI fallback triggered:', err.message);
+        return res.status(422).json({
+          success: false,
+          stage: err.stage || 'optimize',
+          errorCode: err.errorCode || 'seo_optimize_failed',
+          error: err.message || 'Gemini could not produce SEO suggestions.',
+          message: err.message || 'Gemini could not produce SEO suggestions.',
+          retryable: err.retryable !== false
+        });
       }
 
-      // Safe domain fallback for auto_seo_suite
-      const cleanTitle = title || 'راهنمای کمپینگ مدنی کمپ';
-      const fallbackSeo = {
-        titles: [
-          `${cleanTitle} - بررسی تخصصی و راهنمای خرید مدنی کمپ`,
-          `راهنمای جامع ${cleanTitle} در کوهستان و طبیعت‌گردی`,
-          `۱۰ نکته طلایی درباره ${cleanTitle} که باید بدانید`,
-          `چگونه بهترین ${cleanTitle} را انتخاب کنیم؟`,
-          `${cleanTitle} برای طبیعت‌گردان و کوهنوردان حرفه‌ای`
-        ],
-        metaDescription: `راهنمای تخصصی ${cleanTitle} در مدنی کمپ. نکات کلیدی انتخاب، ارزیابی دوام و فاکتورهای حیاتی خرید با گارانتی اصالت.`,
-        primaryKeywords: [cleanTitle, 'تجهیزات کمپینگ', 'مدنی کمپ'],
-        secondaryKeywords: ['راهنمای خرید کوهنوردی', 'قیمت تجهیزات طبیعت گردی', 'بهترین مارک چادر و پوتین'],
-        suggestedSlug: cleanTitle.replace(/[^\u0600-\u06FFa-zA-Z0-9\s-]/g, '').trim().replace(/\s+/g, '-').slice(0, 50),
-        h2Headings: [
-          `معیارهای حیاتی در انتخاب ${cleanTitle}`,
-          `تفاوت مدل‌های حرفه‌ای و معمولی در شرایط سخت کوهستانی`,
-          `نکات نگهداری، شستشو و افزایش طول عمر تجهیزات`
-        ],
-        readabilityFeedback: 'متن شما لحن مناسبی دارد؛ توصیه می‌شود از سرتیترهای H2 پیشنهادی و تصاویر مرتبط برای ارتقای ماندگاری کاربر استفاده کنید.'
-      };
-      return res.json({ success: true, result: fallbackSeo });
+      return res.status(422).json({
+        success: false,
+        stage: 'optimize',
+        errorCode: 'invalid_seo_json',
+        error: 'Gemini returned SEO output that could not be validated.',
+        message: 'Gemini returned SEO output that could not be validated.',
+        retryable: true
+      });
     }
 
     if (action === 'expand_section') {
@@ -1108,7 +970,8 @@ app.post('/api/ai/generate-image', async (req, res) => {
       productReferenceImage,
       previousGenerations,
       forceNewStrategy,
-      siteId
+      siteId,
+      articleBrief
     } = req.body;
 
     if (!prompt && !title && (!article || !article.title)) {
@@ -1126,6 +989,7 @@ app.post('/api/ai/generate-image', async (req, res) => {
       siteId: siteId || DEFAULT_SITE_ID,
       imageType,
       article: effectiveArticle,
+      articleBrief,
       title: effectiveTitle,
       content,
       prompt,
@@ -1156,7 +1020,7 @@ app.post('/api/ai/visual-plan', async (req, res) => {
     if (!article || !article.title) {
       return res.status(400).json({ error: 'اطلاعات ساختاریافته مقاله برای تولید برنامه بصری الزامی است.' });
     }
-    const plan = await generateArticleImagePlan(article);
+    const plan = await generateArticleImagePlan(article, req.body.siteId, req.body.articleBrief);
     return res.json({ success: true, plan });
   } catch (err: any) {
     console.error('Error in /api/ai/visual-plan:', err);
@@ -1305,8 +1169,137 @@ app.post('/api/sites/:id/analyze', async (req, res) => {
   }
 });
 
+app.post('/api/sites/:id/sync', async (req, res) => {
+  const siteId = req.params.id;
+  const mode = req.body?.mode === 'incremental' ? 'incremental' : 'full';
+  const job = createIntelligenceJob(siteId);
+  res.json({ jobId: job.id, status: job.status, stage: job.stage, stages: SYNC_STAGES });
+  syncSiteIntelligence({
+    siteId,
+    mode,
+    onProgress: (progress) => applySyncProgress(job.id, progress)
+  })
+    .then((index) => {
+      updateIntelligenceJob(job.id, {
+        status: 'COMPLETED',
+        stage: 'updating_intelligence',
+        result: {
+          articleCount: index.articles.length,
+          articleTotalFromWp: index.articleTotalFromWp,
+          clusterCount: index.clusters.length,
+          opportunityCount: index.opportunities.length,
+          woocommerceAvailable: index.woocommerceAvailable
+        },
+        completedAt: new Date().toISOString(),
+        done: index.articles.length,
+        total: index.articleTotalFromWp || index.articles.length
+      });
+    })
+    .catch((err) => {
+      updateIntelligenceJob(job.id, {
+        status: 'FAILED',
+        error: err.message,
+        completedAt: new Date().toISOString()
+      });
+    });
+});
+
+app.get('/api/ai/intelligence-jobs/:id', (req, res) => {
+  const job = getIntelligenceJob(req.params.id);
+  if (!job) return res.status(404).json({ error: 'Job not found' });
+  res.json({
+    id: job.id,
+    siteId: job.siteId,
+    status: job.status,
+    stage: job.stage,
+    detail: job.detail,
+    done: job.done,
+    total: job.total,
+    createdAt: job.createdAt,
+    completedAt: job.completedAt,
+    result: job.result,
+    error: job.error
+  });
+});
+
+app.get('/api/sites/:id/intelligence', (req, res) => {
+  const index = getContentIndex(req.params.id);
+  res.json({
+    siteId: req.params.id,
+    indexedAt: index.indexedAt,
+    lastSyncedAt: index.lastSyncedAt,
+    lastFullSyncAt: index.lastFullSyncAt,
+    lastIncrementalSyncAt: index.lastIncrementalSyncAt,
+    woocommerceAvailable: index.woocommerceAvailable,
+    articleCount: index.articles.length,
+    articleTotalFromWp: index.articleTotalFromWp,
+    categories: index.categories.length,
+    products: index.products.length,
+    clusters: index.clusters,
+    gaps: index.gaps,
+    opportunities: index.opportunities,
+    isEmpty: index.articles.length === 0
+  });
+});
+
+app.get('/api/sites/:id/content-health', (req, res) => {
+  const index = getContentIndex(req.params.id);
+  const weakClusters = index.clusters.filter((c) => c.health.score < 60);
+  res.json({
+    siteId: req.params.id,
+    totalArticles: index.articleTotalFromWp || index.articles.length,
+    indexedArticles: index.articles.length,
+    categories: index.categories.length,
+    clusters: index.clusters.length,
+    weakClusters: weakClusters.map((c) => ({ id: c.id, name: c.name, score: c.health.score })),
+    outdatedArticles: index.articles.filter((a) => a.freshness !== 'healthy').map((a) => ({
+      id: a.id,
+      title: a.title,
+      freshness: a.freshness,
+      reason: a.freshnessReason
+    })),
+    duplicationRisks: index.clusters.filter((c) => c.health.cannibalizationRisk !== 'none').map((c) => ({
+      cluster: c.name,
+      risk: c.health.cannibalizationRisk
+    })),
+    isSeedProfile: Boolean(db.getSiteById(req.params.id)?.profile?.isSeed)
+  });
+});
+
+app.get('/api/sites/:id/opportunities', (req, res) => {
+  const index = getContentIndex(req.params.id);
+  res.json({ opportunities: index.opportunities, source: 'content_index' });
+});
+
+app.post('/api/sites/:id/opportunities/analyze', async (req, res) => {
+  try {
+    const index = await syncSiteIntelligence({ siteId: req.params.id, mode: req.body?.mode || 'incremental' });
+    res.json({ opportunities: index.opportunities, indexedArticles: index.articles.length });
+  } catch (err: any) {
+    res.status(422).json({ success: false, message: err.message });
+  }
+});
+
+app.post('/api/sites/:id/article-brief', (req, res) => {
+  const index = getContentIndex(req.params.id);
+  const opportunity = index.opportunities.find((o) => o.id === req.body.opportunityId) ||
+    index.opportunities.find((o) => o.title === req.body.topic);
+  if (!opportunity && !req.body.topic) {
+    return res.status(400).json({ error: 'موضوع یا شناسه فرصت الزامی است.' });
+  }
+  const brief = buildArticleBrief({
+    siteId: req.params.id,
+    opportunity,
+    topic: req.body.topic || opportunity?.title,
+    audience: db.getSiteById(req.params.id)?.seo?.targetAudience,
+    articles: index.articles
+  });
+  res.json({ success: true, brief });
+});
+
 app.post('/api/sites/:id/test-connection', async (req, res) => {
   const site = db.getSiteById(req.params.id);
+  if (!site) return res.status(404).json({ error: 'سایت یافت نشد' });
   const targetUrl = site.wordpress?.baseUrl || site.url;
   const username = site.wordpress?.username;
   const appPassword = site.wordpress?.applicationPassword;
@@ -1476,7 +1469,14 @@ app.post('/api/ai/generate-article', async (req, res) => {
     const result = await generateArticleWithDifferenceEngine(req.body);
     res.json({ success: true, ...result });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    res.status(422).json({
+      success: false,
+      stage: err.stage || 'article_generation',
+      errorCode: err.errorCode || 'article_generation_failed',
+      error: err.message,
+      message: err.message,
+      retryable: err.retryable !== false
+    });
   }
 });
 

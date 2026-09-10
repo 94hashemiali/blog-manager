@@ -1,6 +1,13 @@
 import { useState, useEffect } from 'react';
 import { KeywordOpportunity, Competitor, ManagedSite } from '../types';
 import { extractString } from '../utils/postUtils';
+import HealthSummary from './intelligence/HealthSummary';
+import OpportunityCard from './intelligence/OpportunityCard';
+import SyncProgress from './intelligence/SyncProgress';
+import DuplicationWarning from './intelligence/DuplicationWarning';
+import CompetitorCard from './intelligence/CompetitorCard';
+import ClusterCard from './intelligence/ClusterCard';
+import ArticleBriefPreview from './intelligence/ArticleBriefPreview';
 import {
   TrendingUp,
   Search,
@@ -8,14 +15,11 @@ import {
   ShieldAlert,
   CheckCircle2,
   AlertTriangle,
-  ArrowUpRight,
   RefreshCw,
-  Plus,
   Compass,
   FileText,
   Calendar,
   Layers,
-  ChevronRight,
   Info
 } from 'lucide-react';
 
@@ -49,6 +53,22 @@ export default function SeoIntelligenceCenter({
   const [dupKeywordInput, setDupKeywordInput] = useState('');
   const [isCheckingDup, setIsCheckingDup] = useState(false);
   const [dupResult, setDupResult] = useState<any>(null);
+  const [health, setHealth] = useState<any>(null);
+  const [nextOpps, setNextOpps] = useState<any[]>([]);
+  const [syncStage, setSyncStage] = useState<string | null>(null);
+  const [syncCounts, setSyncCounts] = useState<{ done?: number; total?: number }>({});
+  const [brief, setBrief] = useState<any>(null);
+  const [clusters, setClusters] = useState<any[]>([]);
+
+  const fetchHealth = async () => {
+    const [h, intel] = await Promise.all([
+      fetch(`/api/sites/${activeSite.id}/content-health`).then((r) => r.json()),
+      fetch(`/api/sites/${activeSite.id}/intelligence`).then((r) => r.json())
+    ]);
+    setHealth(h);
+    setNextOpps(intel.opportunities || []);
+    setClusters(intel.clusters || []);
+  };
 
   // Fetch opportunities
   const fetchOpportunities = async (seedTopic?: string) => {
@@ -86,7 +106,35 @@ export default function SeoIntelligenceCenter({
   useEffect(() => {
     fetchOpportunities();
     fetchCompetitors();
+    fetchHealth().catch(() => undefined);
   }, [activeSite.id]);
+
+  const handleSyncSite = async () => {
+    setSyncStage('connecting');
+    const start = await fetch(`/api/sites/${activeSite.id}/sync`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ mode: 'full' })
+    });
+    const started = await start.json();
+    if (!started.jobId) {
+      setSyncStage(null);
+      return;
+    }
+    for (let i = 0; i < 120; i++) {
+      await new Promise((r) => setTimeout(r, 800));
+      const job = await fetch(`/api/ai/intelligence-jobs/${started.jobId}`).then((r) => r.json());
+      setSyncStage(job.stage);
+      setSyncCounts({ done: job.done, total: job.total });
+      if (job.status === 'COMPLETED' || job.status === 'FAILED') {
+        setSyncStage(job.status === 'FAILED' ? null : 'updating_intelligence');
+        await fetchHealth();
+        await fetchOpportunities();
+        setTimeout(() => setSyncStage(null), 1200);
+        break;
+      }
+    }
+  };
 
   const handleRunDuplicationCheck = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -207,11 +255,61 @@ export default function SeoIntelligenceCenter({
         </div>
 
         {/* Global indicator */}
-        <div className="flex items-center gap-2 text-xs text-stone-500">
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={handleSyncSite}
+            className="px-3 py-1.5 text-[11px] font-bold rounded-lg bg-stone-900 text-white"
+          >
+            همگام‌سازی وردپرس
+          </button>
           <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-          <span>پایش زنده برای: <strong className="text-stone-800">{activeSite.name}</strong></span>
+          <span>پایش برای: <strong className="text-stone-800">{activeSite.name}</strong></span>
         </div>
       </div>
+
+      <HealthSummary
+        indexed={health?.indexedArticles || 0}
+        total={health?.totalArticles}
+        clusters={health?.clusters || 0}
+        weak={health?.weakClusters?.length || 0}
+        outdated={health?.outdatedArticles?.length || 0}
+        seed={health?.isSeedProfile || activeSite.profile?.isSeed}
+      />
+      <SyncProgress stage={syncStage} done={syncCounts.done} total={syncCounts.total} />
+      {nextOpps.length > 0 && (
+        <div className="space-y-2">
+          <h3 className="text-sm font-bold text-stone-900">پیشنهاد مقاله بعدی</h3>
+          <div className="grid md:grid-cols-2 gap-3">
+            {nextOpps.slice(0, 4).map((opp: any) => (
+              <OpportunityCard
+                key={opp.id}
+                title={opp.title}
+                keyword={opp.primaryKeyword}
+                intent={opp.searchIntent}
+                contentType={opp.contentType}
+                cluster={opp.clusterName}
+                why={opp.whyThisArticle}
+                priority={opp.priority}
+                confidence={opp.confidence}
+                sourceType={opp.sourceType}
+                cannibalization={opp.cannibalizationRisk?.value}
+                products={opp.productsToMention}
+                onWrite={() => onSelectTopicForGeneration(opp.title, opp.primaryKeyword, opp.searchIntent)}
+                onBrief={async () => {
+                  const data = await fetch(`/api/sites/${activeSite.id}/article-brief`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ opportunityId: opp.id, topic: opp.title })
+                  }).then((r) => r.json());
+                  setBrief(data.brief);
+                }}
+              />
+            ))}
+          </div>
+          <ArticleBriefPreview brief={brief} />
+        </div>
+      )}
 
       {/* TAB 1: KEYWORD OPPORTUNITIES */}
       {activeTab === 'keywords' && (
@@ -405,55 +503,21 @@ export default function SeoIntelligenceCenter({
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {competitors.length === 0 && (
+              <p className="text-xs text-stone-500 md:col-span-2">رقیب تأییدشده‌ای ذخیره نشده. دامنه را اضافه کنید؛ هیچ رقیب پیش‌فرضی جعل نمی‌شود.</p>
+            )}
             {competitors.map((comp) => (
-              <div key={comp.id} className="p-5 rounded-xl border border-stone-200 bg-white space-y-3">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <div className="w-9 h-9 rounded-lg bg-stone-100 flex items-center justify-center font-bold text-stone-700">
-                      {comp.name.slice(0, 1)}
-                    </div>
-                    <div>
-                      <h5 className="font-bold text-stone-900 text-sm">{comp.name}</h5>
-                      <span className="text-xs text-stone-500 font-mono" dir="ltr">{comp.domain}</span>
-                    </div>
-                  </div>
-                  <span className="text-[10px] bg-emerald-50 text-emerald-800 font-semibold px-2 py-0.5 rounded-full border border-emerald-200">
-                    رقیب ارگانیک
-                  </span>
-                </div>
-
-                {/* Covered Categories */}
-                <div>
-                  <span className="text-[11px] font-semibold text-stone-500 block mb-1">دسته‌های زیر پوشش رقیب:</span>
-                  <div className="flex flex-wrap gap-1">
-                    {comp.coveredCategories?.map((cat, i) => (
-                      <span key={i} className="text-[11px] bg-stone-100 text-stone-700 px-2 py-0.5 rounded">
-                        {cat}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Strengths */}
-                {comp.strengths?.length > 0 && (
-                  <div>
-                    <span className="text-[11px] font-semibold text-stone-500 block mb-1">نقاط قوت محتوایی:</span>
-                    <ul className="text-xs text-stone-600 space-y-1 list-disc list-inside">
-                      {comp.strengths.map((s, i) => (
-                        <li key={i}>{s}</li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
-
-                {/* Opportunity / Advantage */}
-                <div className="p-3 bg-emerald-50/70 border border-emerald-200 rounded-lg text-xs text-emerald-950">
-                  <span className="font-bold text-emerald-900 block mb-1">مزیت رقابتی ما برای شکست رقیب:</span>
-                  <p className="leading-relaxed">
-                    {(comp as any).contentGapAdvantage || 'انتشار مقالات جامع تصویری و راهنماهای گام‌به‌گام با تست محصول.'}
-                  </p>
-                </div>
-              </div>
+              <CompetitorCard
+                key={comp.id}
+                name={comp.name}
+                domain={comp.domain}
+                verified={(comp as any).verified}
+                pages={(comp as any).pagesAnalyzed || (comp as any).articleCount}
+                gaps={(comp as any).contentGaps}
+                sourceType={(comp as any).sourceType}
+                confidence={(comp as any).confidence}
+                notes={(comp as any).notes}
+              />
             ))}
           </div>
         </div>
@@ -534,6 +598,7 @@ export default function SeoIntelligenceCenter({
                     <span className="text-xs text-stone-600">{dupResult.verdictMessage}</span>
                   </div>
                 </div>
+                <DuplicationWarning decision={dupResult.decision} message={dupResult.decisionReason} />
 
                 <div className="text-left font-mono">
                   <span className="text-xs text-stone-500 block">درصد شباهت</span>
@@ -568,45 +633,15 @@ export default function SeoIntelligenceCenter({
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {activeSite.profile?.contentClusters?.map((cluster) => (
-              <div key={cluster.id} className="p-5 rounded-xl border border-stone-200 bg-white space-y-3">
-                <div className="flex items-center justify-between">
-                  <h5 className="font-bold text-stone-900 text-sm">{cluster.name}</h5>
-                  <span className="text-xs bg-emerald-100 text-emerald-800 font-semibold px-2 py-0.5 rounded-md">
-                    {cluster.existingArticlesCount} موجود / {cluster.missingArticlesCount} غایب
-                  </span>
-                </div>
-
-                <div className="p-3 bg-stone-50 rounded-lg border border-stone-100 text-xs">
-                  <span className="text-stone-500 block mb-0.5">مقاله ستون اصلی (Pillar Article):</span>
-                  <strong className="text-stone-900 font-bold">{cluster.pillarTopic}</strong>
-                </div>
-
-                <div className="space-y-1.5">
-                  <span className="text-[11px] font-semibold text-stone-500 block">مقالات زیرمجموعه (Cluster Spoke):</span>
-                  {cluster.topics.map((t, idx) => (
-                    <div
-                      key={idx}
-                      className="p-2 rounded-lg border border-stone-100 bg-white text-xs flex items-center justify-between"
-                    >
-                      <span className="text-stone-800">{t.title}</span>
-                      {t.status === 'existing' ? (
-                        <span className="text-[10px] bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded-full font-semibold">
-                          منتشر شده
-                        </span>
-                      ) : (
-                        <button
-                          onClick={() => onSelectTopicForGeneration(t.title, t.keyword, 'informational')}
-                          className="text-[10px] bg-amber-50 text-amber-800 hover:bg-amber-100 px-2 py-0.5 rounded-full font-semibold flex items-center gap-1 transition-colors"
-                        >
-                          <Plus className="w-3 h-3" />
-                          <span>تولید این گپ</span>
-                        </button>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              </div>
+            {(clusters.length ? clusters : activeSite.profile?.contentClusters || []).map((cluster: any) => (
+              <ClusterCard
+                key={cluster.id}
+                name={cluster.name}
+                score={cluster.health?.score ?? 0}
+                pillar={cluster.pillarTopic}
+                missing={cluster.health?.missingContent || cluster.topics?.filter((t: any) => t.status === 'missing').map((t: any) => t.title)}
+                actions={cluster.health?.recommendedNextActions}
+              />
             ))}
           </div>
         </div>

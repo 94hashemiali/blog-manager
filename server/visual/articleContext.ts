@@ -18,6 +18,34 @@ export function stripHtml(input: string): string {
     .trim();
 }
 
+export function applyArticleBriefToVisualContext(
+  article: StructuredArticleContext,
+  brief?: import('./types.js').ArticleBriefVisualContext
+): StructuredArticleContext {
+  if (!brief) return article;
+  const products =
+    article.products && article.products.length > 0 ? article.products : brief.productsToMention || [];
+  const keywords =
+    article.keywords && article.keywords.length > 0
+      ? article.keywords
+      : [brief.primaryKeyword, ...(brief.secondaryKeywords || [])].filter(Boolean) as string[];
+  const sections =
+    article.sections && article.sections.length > 0
+      ? article.sections
+      : (brief.requiredSections || []).map((heading) => ({ heading, text: '' }));
+  return {
+    ...article,
+    uniqueAngle: article.uniqueAngle || brief.uniqueAngle,
+    contentCluster: article.contentCluster || brief.contentCluster,
+    primaryKeyword: article.primaryKeyword || brief.primaryKeyword,
+    searchIntent: article.searchIntent || brief.searchIntent,
+    targetReader: article.targetReader || brief.audience,
+    products,
+    keywords,
+    sections
+  };
+}
+
 export function inferArticleType(title: string, content: string = ''): ArticleVisualType {
   const text = `${title} ${content}`.toLowerCase();
   if (/تفاوت|مقایسه|\bvs\b|یا \s|در برابر|versus|compared/i.test(text)) return 'comparison';
@@ -166,7 +194,9 @@ export function buildArticleRepresentation(
     conclusion: lastParagraph(plain, 700),
     sectionExcerpts,
     lists: extractListItems(rawContent),
-    wordCount: plain.split(/\s+/).filter(Boolean).length
+    wordCount: plain.split(/\s+/).filter(Boolean).length,
+    uniqueAngle: article.uniqueAngle,
+    contentCluster: article.contentCluster
   };
 }
 
@@ -180,6 +210,8 @@ Primary keyword: ${rep.primaryKeyword}
 Search intent: ${rep.searchIntent}
 Heuristic article type: ${rep.articleType}
 Audience: ${rep.audience}
+Unique angle: ${rep.uniqueAngle || 'n/a'}
+Content cluster: ${rep.contentCluster || 'n/a'}
 Category/products: ${rep.products.join(', ') || 'n/a'}
 Headings: ${rep.headings.join(' | ') || 'n/a'}
 Introduction:

@@ -72,7 +72,10 @@ function heuristicPlan(
   forceDifferent?: boolean
 ): Omit<ArtDirectorPlan, 'usedGemini' | 'modelUsed' | 'differencePlan'> {
   const rep = buildArticleRepresentation(article, site);
-  const idea = oneVisualIdeaFor(article.title, article.content || '');
+  const ideaBase = oneVisualIdeaFor(article.title, article.content || '');
+  const idea = article.uniqueAngle
+    ? `${ideaBase} Editorial angle: ${article.uniqueAngle}`
+    : ideaBase;
   const understanding: ArticleUnderstanding = {
     title: article.title,
     primaryTopic: rep.primaryTopic,

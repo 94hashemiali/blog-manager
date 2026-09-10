@@ -88,6 +88,24 @@ export interface StructuredArticleContext {
   searchIntent?: string;
   targetReader?: string;
   primaryKeyword?: string;
+  uniqueAngle?: string;
+  contentCluster?: string;
+}
+
+export interface ArticleBriefVisualContext {
+  uniqueAngle?: string;
+  contentCluster?: string;
+  primaryKeyword?: string;
+  secondaryKeywords?: string[];
+  searchIntent?: string;
+  audience?: string;
+  productsToMention?: string[];
+  requiredSections?: string[];
+  visualIntent?: {
+    visualPurpose?: string;
+    mainSubjectHint?: string;
+    thingsToAvoid?: string[];
+  };
 }
 
 export interface ArticleRepresentation {
@@ -106,6 +124,8 @@ export interface ArticleRepresentation {
   sectionExcerpts: { heading: string; text: string }[];
   lists: string[];
   wordCount: number;
+  uniqueAngle?: string;
+  contentCluster?: string;
 }
 
 export interface ArticleUnderstanding {
@@ -401,6 +421,7 @@ export interface GenerateMasterVisualParams {
   familyId?: string;
   lineageId?: string;
   async?: boolean;
+  articleBrief?: ArticleBriefVisualContext;
   onStage?: (stage: GenerationStage, detail?: string) => void;
 }
 

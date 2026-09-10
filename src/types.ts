@@ -137,6 +137,9 @@ export interface SiteProfile {
   contentClusters: ContentCluster[];
   contentGaps: ContentGap[];
   lastAnalyzedAt: string;
+  sourceType?: 'observed' | 'calculated' | 'inferred' | 'estimated' | 'seed';
+  isSeed?: boolean;
+  confidence?: 'high' | 'medium' | 'low';
 }
 
 // -------------------------------------------------------------
@@ -204,6 +207,7 @@ export type TopicLifecycleStatus =
   | 'IDEA' 
   | 'RESEARCHED' 
   | 'APPROVED' 
+  | 'BRIEF_READY'
   | 'GENERATING' 
   | 'REVIEW' 
   | 'APPROVED_FOR_PUBLISH' 
@@ -251,14 +255,16 @@ export interface ContentFingerprint {
 export interface DuplicateCheckResult {
   isDuplicate: boolean;
   cannibalizationRisk: 'none' | 'low' | 'moderate' | 'severe';
-  similarityScore: number; // 0 to 100
+  similarityScore: number;
   matchedArticles: {
     id: string | number;
     title: string;
     reason: string;
-    overlapType: 'exact_title' | 'same_keyword' | 'same_intent' | 'semantic_overlap';
+    overlapType: string;
   }[];
   verdictMessage: string;
+  decision?: string;
+  decisionReason?: string;
 }
 
 // -------------------------------------------------------------

@@ -1,6 +1,6 @@
 import { db } from '../db.js';
 import { runArtDirector, type ArtDirectorPlan } from './artDirector.js';
-import { buildSiteVisualContext, inferArticleType } from './articleContext.js';
+import { applyArticleBriefToVisualContext, buildSiteVisualContext, inferArticleType } from './articleContext.js';
 import { qualityGateDecision, IMAGE_QUALITY_THRESHOLDS } from './config.js';
 import { evaluateGeneratedImage } from './critic.js';
 import { fallbackOptionsFor } from './fallbackLibrary.js';
@@ -30,19 +30,19 @@ function report(onStage: GenerateMasterVisualParams['onStage'], stage: Generatio
 }
 
 function normalizeArticle(params: GenerateMasterVisualParams): StructuredArticleContext {
-  if (params.article?.title) {
-    return {
-      ...params.article,
-      content: params.article.content || params.content || ''
-    };
-  }
-  return {
-    title: params.title || params.prompt || 'تجهیزات کوهنوردی و طبیعت‌گردی',
-    content: params.content || '',
-    sections: params.section ? [{ heading: params.section, text: '' }] : [],
-    keywords: [],
-    products: []
-  };
+  const base: StructuredArticleContext = params.article?.title
+    ? {
+        ...params.article,
+        content: params.article.content || params.content || ''
+      }
+    : {
+        title: params.title || params.prompt || 'تجهیزات کوهنوردی و طبیعت‌گردی',
+        content: params.content || '',
+        sections: params.section ? [{ heading: params.section, text: '' }] : [],
+        keywords: [],
+        products: []
+      };
+  return applyArticleBriefToVisualContext(base, params.articleBrief);
 }
 
 function persistAsset(asset: GeneratedImageAsset) {
@@ -423,9 +423,14 @@ export async function generateTutorialImage(context: StructuredArticleContext, o
   return generateMasterVisualAsset({ ...options, article: context, imageType: 'TUTORIAL' });
 }
 
-export async function generateArticleImagePlan(article: StructuredArticleContext, siteId?: string) {
-  const site = buildSiteVisualContext(db.getSiteById(siteId || 'site-madanicamp'));
-  const plan = await runArtDirector({ article, imageType: 'HERO', site, regenerationMode: 'new' });
+export async function generateArticleImagePlan(
+  article: StructuredArticleContext,
+  siteId?: string,
+  articleBrief?: import('./types.js').ArticleBriefVisualContext
+) {
+  const site = buildSiteVisualContext(siteId ? db.getSiteById(siteId) : undefined);
+  const merged = applyArticleBriefToVisualContext(article, articleBrief);
+  const plan = await runArtDirector({ article: merged, imageType: 'HERO', site, regenerationMode: 'new' });
   return {
     hero: {
       type: 'HERO' as ImageType,
@@ -434,7 +439,7 @@ export async function generateArticleImagePlan(article: StructuredArticleContext
       strategy: plan.strategy.id,
       aspectRatio: '16:9'
     },
-    supportingImages: (article.sections || []).slice(0, 3).map((sec) => {
+    supportingImages: (merged.sections || []).slice(0, 3).map((sec) => {
       const lower = sec.heading.toLowerCase();
       let type: ImageType = 'ARTICLE';
       if (/مقایسه|تفاوت|vs/.test(lower)) type = 'COMPARISON';

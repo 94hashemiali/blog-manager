@@ -13,8 +13,10 @@ function getFilePath(filename: string): string {
 
 function readJsonFile<T>(filename: string, defaultValue: T): T {
   const filePath = getFilePath(filename);
+  const bakPath = `${filePath}.bak`;
   try {
     if (!fs.existsSync(filePath)) {
+      if (defaultValue == null) return defaultValue;
       fs.writeFileSync(filePath, JSON.stringify(defaultValue, null, 2), 'utf-8');
       return defaultValue;
     }
@@ -22,6 +24,13 @@ function readJsonFile<T>(filename: string, defaultValue: T): T {
     return JSON.parse(content) as T;
   } catch (err) {
     console.error(`Error reading ${filename}:`, err);
+    try {
+      if (fs.existsSync(bakPath)) {
+        return JSON.parse(fs.readFileSync(bakPath, 'utf-8')) as T;
+      }
+    } catch (bakErr) {
+      console.error(`Backup also unreadable for ${filename}:`, bakErr);
+    }
     return defaultValue;
   }
 }
@@ -29,9 +38,12 @@ function readJsonFile<T>(filename: string, defaultValue: T): T {
 function writeJsonFile<T>(filename: string, data: T): void {
   const filePath = getFilePath(filename);
   try {
-    // Write atomically to avoid corrupted writes
     const tempPath = `${filePath}.tmp`;
+    const bakPath = `${filePath}.bak`;
     fs.writeFileSync(tempPath, JSON.stringify(data, null, 2), 'utf-8');
+    if (fs.existsSync(filePath)) {
+      fs.copyFileSync(filePath, bakPath);
+    }
     fs.renameSync(tempPath, filePath);
   } catch (err) {
     console.error(`Error writing ${filename}:`, err);
@@ -163,7 +175,10 @@ const INITIAL_SITES = [
           reason: 'جستجوی با نیت خرید بالا (Commercial Intent) برای کسانی که قصد خرید تجهیزات پخت و پز دارند'
         }
       ],
-      lastAnalyzedAt: new Date().toISOString()
+      lastAnalyzedAt: new Date().toISOString(),
+      sourceType: 'seed',
+      isSeed: true,
+      confidence: 'low'
     },
     createdAt: '2026-07-01T10:00:00.000Z',
     updatedAt: new Date().toISOString()
@@ -176,18 +191,16 @@ export const db = {
   saveSites: (sites: any[]) => writeJsonFile('sites.json', sites),
   getSiteById: (siteId: string) => {
     const sites = readJsonFile<any[]>('sites.json', INITIAL_SITES);
-    return sites.find((s) => s.id === siteId) || sites[0];
+    return sites.find((s) => s.id === siteId);
   },
 
-  // Articles
   getArticles: (siteId?: string) => {
     const all = readJsonFile<any[]>('articles.json', []);
     if (!siteId) return all;
-    return all.filter((a) => !a.site_id || a.site_id === siteId);
+    return all.filter((a) => a.site_id === siteId || a.siteId === siteId);
   },
   saveArticles: (articles: any[]) => writeJsonFile('articles.json', articles),
 
-  // Topics / Planner Opportunities
   getTopics: (siteId?: string) => {
     const all = readJsonFile<any[]>('topics.json', []);
     if (!siteId) return all;
@@ -195,23 +208,29 @@ export const db = {
   },
   saveTopics: (topics: any[]) => writeJsonFile('topics.json', topics),
 
-  // Competitors
   getCompetitors: (siteId?: string) => {
     const all = readJsonFile<any[]>('competitors.json', []);
     if (!siteId) return all;
-    return all.filter((c) => !c.siteId || c.siteId === siteId);
+    return all.filter((c) => c.siteId === siteId);
   },
   saveCompetitors: (competitors: any[]) => writeJsonFile('competitors.json', competitors),
 
-  // Images
   getImages: (siteId?: string) => {
     const all = readJsonFile<any[]>('images.json', []);
     if (!siteId) return all;
-    return all.filter((img) => !img.siteId || img.siteId === siteId);
+    return all.filter((img) => img.siteId === siteId);
   },
   saveImages: (images: any[]) => writeJsonFile('images.json', images),
 
-  // Jobs
   getJobs: () => readJsonFile<any[]>('jobs.json', []),
-  saveJobs: (jobs: any[]) => writeJsonFile('jobs.json', jobs)
+  saveJobs: (jobs: any[]) => writeJsonFile('jobs.json', jobs),
+
+  getContentIndex: (siteId: string) => {
+    const safe = String(siteId || 'unknown').replace(/[^a-zA-Z0-9_-]/g, '_');
+    return readJsonFile<any>(`content-index-${safe}.json`, null);
+  },
+  saveContentIndex: (siteId: string, index: any) => {
+    const safe = String(siteId || 'unknown').replace(/[^a-zA-Z0-9_-]/g, '_');
+    writeJsonFile(`content-index-${safe}.json`, index);
+  }
 };

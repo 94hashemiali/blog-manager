@@ -31,6 +31,7 @@ export interface GenerateVisualParams {
   regenerationMode?: GenerateMasterVisualParams['regenerationMode'];
   familyId?: string;
   promptVariables?: GenerateMasterVisualParams['promptVariables'];
+  articleBrief?: GenerateMasterVisualParams['articleBrief'];
   onStage?: GenerateMasterVisualParams['onStage'];
 }
 
@@ -65,6 +66,7 @@ export async function generateVisualAsset(params: GenerateVisualParams) {
     regenerationMode: params.regenerationMode || (params.forceNewStrategy ? 'different_concept' : 'new'),
     familyId: params.familyId,
     promptVariables: params.promptVariables,
+    articleBrief: params.articleBrief,
     rejectionFeedback: params.rejectionFeedback,
     onStage: params.onStage
   });

@@ -1,4 +1,4 @@
-import { buildArticleRepresentation, inferArticleType, serializeArticleForPrompt } from './articleContext.js';
+import { applyArticleBriefToVisualContext, buildArticleRepresentation, inferArticleType, serializeArticleForPrompt } from './articleContext.js';
 import { loadQualityThresholds, qualityGateDecision, BANNED_PROMPT_WORDS } from './config.js';
 import { feedbackToDirection } from './feedback.js';
 import { buildDifferencePlan, evaluateNoveltyAgainstHistory, hammingDistance, computeSha256 } from './novelty.js';
@@ -253,6 +253,23 @@ run('novelty treats same framing as similar', () => {
   assert(second.exactDuplicate, 'same bytes must be exact duplicate');
   assert(second.isAcceptable === false, 'same composition should be rejected');
   assert(hammingDistance('aaaa', 'aaab') === 1, 'hamming');
+});
+
+run('article brief unique angle is merged into visual context', () => {
+  const merged = applyArticleBriefToVisualContext(
+    { title: 'بهترین کفش کوهنوردی', content: 'متن کوتاه درباره کفش ترکینگ.' },
+    {
+      uniqueAngle: 'wide-feet winter trekking, not a generic best-of list',
+      primaryKeyword: 'کفش کوهنوردی',
+      productsToMention: ['Vibram'],
+      contentCluster: 'footwear'
+    }
+  );
+  assert(merged.uniqueAngle?.includes('wide-feet'), 'unique angle');
+  assert(merged.products?.includes('Vibram'), 'products from brief');
+  assert(merged.contentCluster === 'footwear', 'cluster');
+  const serialized = serializeArticleForPrompt(buildArticleRepresentation(merged));
+  assert(serialized.includes('wide-feet'), 'angle reaches visual prompt payload');
 });
 
 if (process.exitCode) {

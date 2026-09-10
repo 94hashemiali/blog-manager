@@ -24,6 +24,7 @@ const LIFECYCLE_STEPS: { key: TopicLifecycleStatus; label: string; color: string
   { key: 'IDEA', label: 'ایده اولیه (Idea)', color: 'bg-stone-100 text-stone-700 border-stone-200' },
   { key: 'RESEARCHED', label: 'تحقیق شده (Researched)', color: 'bg-blue-50 text-blue-800 border-blue-200' },
   { key: 'APPROVED', label: 'تأیید برای تولید (Approved)', color: 'bg-emerald-50 text-emerald-800 border-emerald-200' },
+  { key: 'BRIEF_READY', label: 'بریف آماده (Brief Ready)', color: 'bg-cyan-50 text-cyan-800 border-cyan-200' },
   { key: 'GENERATING', label: 'در حال نگارش (Generating)', color: 'bg-purple-50 text-purple-800 border-purple-200' },
   { key: 'REVIEW', label: 'بازبینی ویراستار (Review)', color: 'bg-amber-50 text-amber-800 border-amber-200' },
   { key: 'APPROVED_FOR_PUBLISH', label: 'آماده انتشار (Ready)', color: 'bg-teal-50 text-teal-800 border-teal-200' },

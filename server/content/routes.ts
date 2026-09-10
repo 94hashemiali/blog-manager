@@ -9,7 +9,7 @@ import { buildPublishingChecklist, runPublishOperation } from './publishing.js';
 import { recommendNextArticles } from './recommendations.js';
 import { editDraftSection, SECTION_EDIT_ACTIONS, type SectionEditAction } from './sectionEdit.js';
 import { toVisualEngineRequest } from './visualBrief.js';
-import { appendVersion, restoreVersion } from './versions.js';
+import { appendVersion, invalidateChecksAfterDraftChange, restoreVersion } from './versions.js';
 import { parseMarkdownSections, contentHash } from './draft.js';
 import {
   approveJob,
@@ -90,6 +90,7 @@ productionRouter.get('/:siteId/jobs', (req, res) => {
     topic: job.topic,
     primaryKeyword: job.primaryKeyword,
     searchIntent: job.searchIntent,
+    mode: job.mode,
     decision: job.decision?.recommendation,
     validationScore: job.validation?.score,
     factCheckRisk: job.factCheck?.riskLevel,
@@ -296,6 +297,7 @@ productionRouter.post(
       });
 
       const next: ContentProductionJob = { ...job, draft: edited.draft, validation };
+      invalidateChecksAfterDraftChange(next);
       appendVersion(next, {
         action: 'SECTION_REGENERATED',
         source: 'gemini',
@@ -336,6 +338,7 @@ productionRouter.put('/:siteId/jobs/:jobId/draft', (req, res) => {
 
   const validation = validateArticleDraft({ draft, brief: job.brief, research: job.research, decision: job.decision });
   const next: ContentProductionJob = { ...job, draft, validation };
+  invalidateChecksAfterDraftChange(next);
   appendVersion(next, {
     action: 'USER_EDITED',
     source: 'user',

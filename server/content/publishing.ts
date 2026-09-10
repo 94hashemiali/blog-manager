@@ -222,6 +222,22 @@ function wpStatusFor(operation: PublishOperation): 'draft' | 'publish' {
 }
 
 /**
+ * UPDATE/MERGE jobs must hit the existing WordPress post — never create a duplicate
+ * when the studio still sends CREATE-style PUBLISH / SAVE_WORDPRESS_DRAFT.
+ */
+export function resolvePublishOperation(
+  job: ContentProductionJob,
+  operation: PublishOperation
+): PublishOperation {
+  const postId = job.wordpressPostId || job.originalWordpressPostId;
+  const isUpdateJob = (job.mode === 'UPDATE' || job.mode === 'MERGE') && Boolean(postId);
+  if (!isUpdateJob) return operation;
+  if (operation === 'PUBLISH') return 'UPDATE_PUBLISHED_ARTICLE';
+  if (operation === 'SAVE_WORDPRESS_DRAFT') return 'UPDATE_WORDPRESS_DRAFT';
+  return operation;
+}
+
+/**
  * Runs one publishing operation. Local state is only advanced after WordPress
  * confirms the write, so a failed publish never leaves the job marked
  * published.
@@ -232,7 +248,11 @@ export async function runPublishOperation(params: {
   categories?: number[];
   featuredMediaId?: number;
 }): Promise<{ result: PublishingResult; job: ContentProductionJob }> {
-  const { job, operation } = params;
+  const operation = resolvePublishOperation(params.job, params.operation);
+  const job = {
+    ...params.job,
+    wordpressPostId: params.job.wordpressPostId || params.job.originalWordpressPostId
+  };
   const timestamp = new Date().toISOString();
   const previousStatus = job.stage;
 

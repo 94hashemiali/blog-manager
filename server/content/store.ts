@@ -29,6 +29,7 @@ function migrateJob(raw: any, siteId: string): ContentProductionJob {
     stageHistory: Array.isArray(raw.stageHistory) ? raw.stageHistory : [],
     failures: Array.isArray(raw.failures) ? raw.failures : [],
     stage: raw.stage || 'idea',
+    mode: raw.mode === 'UPDATE' || raw.mode === 'MERGE' ? raw.mode : 'CREATE',
     searchIntent: (raw.searchIntent as SearchIntent) || 'informational'
   };
 }

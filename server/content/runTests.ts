@@ -26,8 +26,8 @@ const { runSeoPreflight } = await import('./seoPreflight.js');
 const { classifyClaimLocally, extractClaims } = await import('./factcheck.js');
 const { suggestInternalLinks, auditDraftLinks } = await import('./linking.js');
 const { buildVisualBrief, toVisualEngineRequest } = await import('./visualBrief.js');
-const { appendVersion, restoreVersion } = await import('./versions.js');
-const { buildPublishingChecklist } = await import('./publishing.js');
+const { appendVersion, invalidateChecksAfterDraftChange, restoreVersion } = await import('./versions.js');
+const { buildPublishingChecklist, resolvePublishOperation } = await import('./publishing.js');
 const { canTransition } = await import('./pipeline.js');
 const { recommendNextArticles } = await import('./recommendations.js');
 const { parseMarkdownSections, sectionsToMarkdown, slugify } = await import('./draft.js');
@@ -615,6 +615,68 @@ await run('versioning: history is append-only and restore adds a new version', (
   assert(restoreVersion(job, 99) === null, 'unknown version cannot be restored');
 });
 
+await run('draft edits invalidate stale fact-check and seo reports', () => {
+  const draft = makeDraft();
+  const decision = decideDifferentiation({
+    siteId: SITE_A,
+    topic: 'راهنمای پوتین',
+    primaryKeyword: 'پوتین کوهنوردی',
+    searchIntent: 'informational',
+    articles: []
+  });
+  const job = makeJob({
+    draft,
+    stage: 'approved',
+    validation: validateArticleDraft({ draft, brief: briefA, research: researchA }),
+    factCheck: {
+      id: 'fc-stale',
+      siteId: SITE_A,
+      draftVersion: 1,
+      checkedAt: new Date().toISOString(),
+      claims: [],
+      summary: {
+        SUPPORTED: 1,
+        PARTIALLY_SUPPORTED: 0,
+        UNSUPPORTED: 0,
+        CONTRADICTED: 0,
+        NEEDS_VERIFICATION: 0,
+        OPINION: 0
+      },
+      evidenceCoverage: {
+        totalClaims: 1,
+        supportedClaims: 1,
+        unsupportedClaims: 0,
+        needsVerification: 0,
+        coverageRatio: 1,
+        highRiskClaims: [],
+        confidence: 'high'
+      },
+      riskLevel: 'low',
+      blocking: []
+    },
+    seoPreflight: runSeoPreflight({
+      draft,
+      brief: briefA,
+      decision
+    }),
+    publishingChecklist: buildPublishingChecklist({
+      job: makeJob({ draft, stage: 'approved' })
+    })
+  });
+
+  job.draft = { ...job.draft!, content: `${job.draft!.content}\n\n## بخش جدید\nمتن تازه` };
+  invalidateChecksAfterDraftChange(job);
+
+  assert(job.factCheck === undefined, 'fact check cleared after draft change');
+  assert(job.seoPreflight === undefined, 'seo preflight cleared after draft change');
+  assert(job.publishingChecklist === undefined, 'publishing checklist cleared after draft change');
+  assert(job.stage === 'needs_revision', 'approved job returns to needs_revision');
+
+  const checklist = buildPublishingChecklist({ job });
+  assert(!checklist.canPublish, 'publish blocked until checks re-run');
+  assert(checklist.blocking.some((item) => item.id === 'fact_check'), 'fact check becomes blocking again');
+});
+
 await run('publishing checklist blocks on missing validation and fact check', () => {
   const bare = buildPublishingChecklist({ job: makeJob({ draft: makeDraft() }) });
   assert(!bare.canPublish, 'publishing is blocked before the checks have run');
@@ -716,6 +778,27 @@ await run('publishing state transitions follow the lifecycle', () => {
   assert(!canTransition('brief_ready', 'approved'), 'brief cannot be approved directly');
   assert(canTransition('published', 'needs_revision'), 'published → needs_revision');
   assert(canTransition('needs_revision', 'drafting'), 'needs_revision re-enters the pipeline');
+});
+
+await run('UPDATE jobs remap publish ops to update the same WordPress post', () => {
+  const updateJob = makeJob({
+    mode: 'UPDATE',
+    wordpressPostId: 42,
+    originalWordpressPostId: 42,
+    draft: makeDraft()
+  });
+  assert(
+    resolvePublishOperation(updateJob, 'PUBLISH') === 'UPDATE_PUBLISHED_ARTICLE',
+    'PUBLISH remaps to UPDATE_PUBLISHED_ARTICLE'
+  );
+  assert(
+    resolvePublishOperation(updateJob, 'SAVE_WORDPRESS_DRAFT') === 'UPDATE_WORDPRESS_DRAFT',
+    'draft save remaps to UPDATE_WORDPRESS_DRAFT'
+  );
+  assert(
+    resolvePublishOperation(makeJob({ mode: 'CREATE', draft: makeDraft() }), 'PUBLISH') === 'PUBLISH',
+    'CREATE jobs keep PUBLISH'
+  );
 });
 
 await run('multi-site isolation: production data never crosses sites', async () => {

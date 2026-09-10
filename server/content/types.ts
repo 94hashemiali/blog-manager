@@ -485,11 +485,27 @@ export interface ContentProductionJob {
   id: string;
   siteId: string;
   stage: ProductionStage;
+  /** CREATE is the default; UPDATE/MERGE preserve an existing article identity. */
+  mode: 'CREATE' | 'UPDATE' | 'MERGE';
   topic: string;
   primaryKeyword: string;
   searchIntent: SearchIntent;
   opportunityId?: string;
   targetAudience?: string;
+  sourceArticleId?: string | number;
+  originalWordpressPostId?: number;
+  originalContentHash?: string;
+  updateReason?: string;
+  updatePlan?: {
+    whyUpdateNeeded: string[];
+    sectionsToPreserve: string[];
+    sectionsToModify: string[];
+    sectionsToAdd: string[];
+    factsToVerify: string[];
+    expectedRisk: 'low' | 'medium' | 'high';
+    requiredHumanReview: string[];
+  };
+  performanceSignals?: string[];
   decision?: DifferentiationDecision;
   research?: ResearchPacket;
   brief?: ContentBrief;

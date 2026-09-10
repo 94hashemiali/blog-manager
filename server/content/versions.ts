@@ -82,11 +82,31 @@ export function restoreVersion(
   };
 
   // Reports were computed against the previous content and no longer apply.
+  invalidateChecksAfterDraftChange(job);
   job.validation = undefined;
-  job.factCheck = undefined;
-  job.seoPreflight = undefined;
-  job.publishingChecklist = undefined;
   job.stage = 'needs_revision';
 
   return { job, restored };
+}
+
+/**
+ * Draft content changed — downstream QA reports must not gate publish until re-run.
+ * Keeps validation when the caller has already recomputed it.
+ */
+export function invalidateChecksAfterDraftChange(job: ContentProductionJob): void {
+  job.factCheck = undefined;
+  job.seoPreflight = undefined;
+  job.publishingChecklist = undefined;
+
+  const postDraftStages = new Set([
+    'fact_checked',
+    'seo_ready',
+    'review',
+    'approved',
+    'publishing',
+    'published'
+  ]);
+  if (postDraftStages.has(job.stage)) {
+    job.stage = 'needs_revision';
+  }
 }

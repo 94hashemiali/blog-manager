@@ -3,6 +3,7 @@ export {
   approveJob,
   canTransition,
   createProductionJob,
+  createUpdateProductionJob,
   describeProgress,
   markNeedsRevision,
   moveToReview,
@@ -20,8 +21,8 @@ export { factCheckDraft, extractClaims, classifyClaimLocally } from './factcheck
 export { runSeoPreflight } from './seoPreflight.js';
 export { suggestInternalLinks, auditDraftLinks, MAX_INTERNAL_LINKS } from './linking.js';
 export { buildVisualBrief, toVisualEngineRequest } from './visualBrief.js';
-export { buildPublishingChecklist, runPublishOperation } from './publishing.js';
-export { appendVersion, getVersion, restoreVersion } from './versions.js';
+export { buildPublishingChecklist, resolvePublishOperation, runPublishOperation } from './publishing.js';
+export { appendVersion, getVersion, invalidateChecksAfterDraftChange, restoreVersion } from './versions.js';
 export { recommendNextArticles } from './recommendations.js';
 export { editDraftSection, SECTION_EDIT_ACTIONS } from './sectionEdit.js';
 export { decideDifferentiation, blocksDrafting } from './differentiation.js';

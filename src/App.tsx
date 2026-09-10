@@ -11,8 +11,10 @@ import SeoIntelligenceCenter from './components/SeoIntelligenceCenter';
 import ContentPlannerCalendar from './components/ContentPlannerCalendar';
 import VisualAssetStudio from './components/VisualAssetStudio';
 import ContentStudio from './components/ContentStudio';
+import PerformanceDashboard from './components/PerformanceDashboard';
 import { WPPost, WPCategory, SiteSettings, ManagedSite, KeywordOpportunity } from './types';
 import { normalizePost } from './utils/postUtils';
+import type { AppView } from './components/Header';
 
 const STORAGE_KEY_SETTINGS = 'madani_blog_settings';
 const STORAGE_KEY_LOCAL_POSTS = 'madani_local_posts';
@@ -101,8 +103,9 @@ const DEFAULT_SITE: ManagedSite = {
 };
 
 export default function App() {
-  // Navigation View: 'posts' | 'production' | 'seo' | 'planner' | 'visuals'
-  const [currentView, setCurrentView] = useState<'posts' | 'production' | 'seo' | 'planner' | 'visuals'>('posts');
+  // Navigation View: 'posts' | 'production' | 'seo' | 'planner' | 'visuals' | 'performance'
+  const [currentView, setCurrentView] = useState<AppView>('posts');
+  const [pendingProductionJobId, setPendingProductionJobId] = useState<string | null>(null);
 
   // Sites state
   const [sites, setSites] = useState<ManagedSite[]>([DEFAULT_SITE]);
@@ -509,6 +512,18 @@ export default function App() {
           <ContentStudio
             activeSite={activeSite}
             onOpenVisuals={() => setCurrentView('visuals')}
+            initialJobId={pendingProductionJobId}
+            onInitialJobConsumed={() => setPendingProductionJobId(null)}
+          />
+        )}
+
+        {currentView === 'performance' && (
+          <PerformanceDashboard
+            activeSite={activeSite}
+            onOpenUpdateJob={(jobId) => {
+              setPendingProductionJobId(jobId);
+              setCurrentView('production');
+            }}
           />
         )}
 

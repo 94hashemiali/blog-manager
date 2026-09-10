@@ -12,6 +12,7 @@ import { analyzeSiteIntelligence } from './server/siteIntelligence.js';
 import { resolveGeneratedImagePath } from './server/visual/storage.js';
 import { createVisualJob, updateVisualJob, getVisualJob } from './server/visual/jobs.js';
 import { productionRouter } from './server/content/index.js';
+import { performanceRouter } from './server/performance/index.js';
 import {
   syncSiteIntelligence,
   getContentIndex,
@@ -32,6 +33,8 @@ app.use(express.json({ limit: '10mb' }));
 
 // Content Production OS routes live in server/content/routes.ts.
 app.use('/api/production', productionRouter);
+// Content Performance Intelligence routes live in server/performance/routes.ts.
+app.use('/api/performance', performanceRouter);
 
 const DEFAULT_WP_URL = 'https://madanicamp.com';
 

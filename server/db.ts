@@ -245,5 +245,12 @@ export const db = {
   },
   saveProductionStore: (siteId: string, store: any) => {
     writeJsonFile(`production-${safeSiteId(siteId)}.json`, store);
+  },
+
+  getPerformanceStore: (siteId: string) => {
+    return readJsonFile<any>(`performance-${safeSiteId(siteId)}.json`, null);
+  },
+  savePerformanceStore: (siteId: string, store: any) => {
+    writeJsonFile(`performance-${safeSiteId(siteId)}.json`, store);
   }
 };

@@ -31,6 +31,7 @@ export interface ProductionJobSummary {
   topic: string;
   primaryKeyword: string;
   searchIntent: string;
+  mode?: 'CREATE' | 'UPDATE' | 'MERGE';
   decision?: string;
   validationScore?: number;
   factCheckRisk?: string;

@@ -73,6 +73,7 @@ export function createProductionJob(params: {
     id: newJobId(),
     siteId: params.siteId,
     stage: 'idea',
+    mode: 'CREATE',
     topic,
     primaryKeyword: params.primaryKeyword?.trim() || inferPrimaryKeyword(topic),
     searchIntent: params.searchIntent || inferIntent(topic),
@@ -97,6 +98,77 @@ export function createProductionJob(params: {
     primaryKeyword: job.primaryKeyword,
     searchIntent: job.searchIntent,
     articles: index.articles
+  });
+
+  return saveJob(job);
+}
+
+/**
+ * Opens an UPDATE production job grounded in an existing indexed article and
+ * optional performance update plan. Preserves WordPress identity.
+ */
+export function createUpdateProductionJob(params: {
+  siteId: string;
+  articleId: string | number;
+  updateReason?: string;
+  updatePlan?: ContentProductionJob['updatePlan'];
+  performanceSignals?: string[];
+  mode?: 'UPDATE' | 'MERGE';
+}): ContentProductionJob {
+  const site = db.getSiteById(params.siteId);
+  if (!site) throw new Error('Site not found');
+  const index = getContentIndex(params.siteId);
+  const article = index.articles.find((row) => String(row.id) === String(params.articleId));
+  if (!article || article.siteId !== params.siteId) {
+    throw new Error('مقاله در ایندکس این سایت پیدا نشد.');
+  }
+
+  const now = new Date().toISOString();
+  const job: ContentProductionJob = {
+    id: newJobId(),
+    siteId: params.siteId,
+    stage: 'idea',
+    mode: params.mode || 'UPDATE',
+    topic: article.title,
+    primaryKeyword: article.fingerprint.primaryKeyword || inferPrimaryKeyword(article.title),
+    searchIntent: article.fingerprint.searchIntent || inferIntent(article.title),
+    targetAudience: site.seo?.targetAudience,
+    sourceArticleId: article.id,
+    originalWordpressPostId: article.wpId,
+    originalContentHash: article.fingerprint.contentHash,
+    updateReason: params.updateReason || 'Performance / freshness recommendation',
+    updatePlan: params.updatePlan,
+    performanceSignals: params.performanceSignals || [],
+    wordpressPostId: article.wpId,
+    publishedUrl: article.url,
+    internalLinks: [],
+    visualAssetIds: [],
+    versions: [
+      {
+        version: 1,
+        timestamp: now,
+        action: 'USER_EDITED',
+        source: 'system',
+        contentHash: article.fingerprint.contentHash,
+        title: article.title,
+        content: article.content,
+        excerpt: article.excerpt,
+        userNotes: 'نسخهٔ پایه قبل از به‌روزرسانی (از ایندکس محتوا)'
+      }
+    ],
+    publishingHistory: [],
+    stageHistory: [{ stage: 'idea', at: now, note: 'update job created from existing article' }],
+    failures: [],
+    createdAt: now,
+    updatedAt: now
+  };
+
+  job.decision = decideDifferentiation({
+    siteId: params.siteId,
+    topic: job.topic,
+    primaryKeyword: job.primaryKeyword,
+    searchIntent: job.searchIntent,
+    articles: index.articles.filter((row) => String(row.id) !== String(article.id))
   });
 
   return saveJob(job);

@@ -162,13 +162,21 @@ export function getNextActions(siteId: string) {
   }>(`/api/performance/${siteId}/next-actions`);
 }
 
-export function syncPerformance(siteId: string) {
+export function syncPerformance(siteId: string, opts: { wait?: boolean } = {}) {
   return request<{
     success: boolean;
-    overview: PerformanceOverview;
-    articleCount: number;
-    providers: ProviderStatus[];
-  }>(`/api/performance/${siteId}/sync`, { method: 'POST', body: '{}' });
+    jobId?: string;
+    status?: string;
+    created?: boolean;
+    legacy?: boolean;
+    overview?: PerformanceOverview;
+    articleCount?: number;
+    providers?: ProviderStatus[];
+    message?: string;
+  }>(`/api/performance/${siteId}/sync`, {
+    method: 'POST',
+    body: JSON.stringify({ wait: Boolean(opts.wait) })
+  });
 }
 
 export function createUpdateJob(

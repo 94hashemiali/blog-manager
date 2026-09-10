@@ -7,6 +7,7 @@ import { getPerformanceOverview, syncPerformanceForSite } from './sync.js';
 import { loadPerformanceStore } from './store.js';
 import { buildDeterministicUpdatePlan, enrichUpdatePlanWithAi } from './updatePlan.js';
 import { defaultProviderStatuses, getAnalyticsProvider, getSearchConsoleProvider } from './providers.js';
+import { enqueueJob } from '../jobs/enqueue.js';
 
 export const performanceRouter = Router();
 
@@ -141,12 +142,32 @@ performanceRouter.get('/:siteId/next-actions', (req, res) => {
 performanceRouter.post('/:siteId/sync', (req, res) => {
   const siteId = requireSite(req, res);
   if (!siteId) return;
-  const result = syncPerformanceForSite(siteId);
-  res.json({
+
+  // Legacy: ?wait=1 or body.wait === true keeps synchronous behavior for old clients.
+  if (req.query.wait === '1' || req.body?.wait === true) {
+    const result = syncPerformanceForSite(siteId);
+    return res.json({
+      success: true,
+      legacy: true,
+      overview: result.overview,
+      articleCount: result.records.length,
+      providers: result.providerStatuses
+    });
+  }
+
+  const { job, created } = enqueueJob({
+    siteId,
+    type: 'PERFORMANCE_SYNC',
+    priority: 'LOW',
+    triggerReason: 'api:performance_sync',
+    idempotencyKey: `perf-sync-${siteId}`
+  });
+  res.status(created ? 202 : 200).json({
     success: true,
-    overview: result.overview,
-    articleCount: result.records.length,
-    providers: result.providerStatuses
+    jobId: job.id,
+    status: job.status,
+    created,
+    message: 'Performance sync queued'
   });
 });
 

@@ -18,6 +18,7 @@ import PerformanceOpportunityList from './performance/PerformanceOpportunityList
 import ContentHealthTable from './performance/ContentHealthTable';
 import ArticleHealthCard from './performance/ArticleHealthCard';
 import DecayPanel from './performance/DecayPanel';
+import { pollJob } from '../api/jobs';
 
 interface Props {
   activeSite: ManagedSite;
@@ -34,6 +35,7 @@ export default function PerformanceDashboard({ activeSite, onOpenUpdateJob }: Pr
   const [record, setRecord] = useState<PerformanceRecord | null>(null);
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
+  const [syncLabel, setSyncLabel] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -83,14 +85,23 @@ export default function PerformanceDashboard({ activeSite, onOpenUpdateJob }: Pr
 
   const handleSync = async () => {
     setSyncing(true);
+    setSyncLabel('در صف…');
     setError(null);
     try {
-      await syncPerformance(siteId);
+      const queued = await syncPerformance(siteId);
+      if (queued.jobId) {
+        await pollJob(queued.jobId, {
+          siteId,
+          intervalMs: 1200,
+          onUpdate: (ops) => setSyncLabel(ops.progress?.label || ops.status)
+        });
+      }
       await refresh();
     } catch (err: any) {
       setError(err.message);
     } finally {
       setSyncing(false);
+      setSyncLabel(null);
     }
   };
 
@@ -126,7 +137,7 @@ export default function PerformanceDashboard({ activeSite, onOpenUpdateJob }: Pr
             disabled={syncing}
             className="rounded-xl border border-stone-200 bg-white px-3.5 py-2 text-xs font-black text-stone-700 hover:bg-stone-50 disabled:opacity-50"
           >
-            {syncing ? 'در حال همگام‌سازی…' : 'همگام‌سازی عملکرد'}
+            {syncing ? syncLabel || 'در حال همگام‌سازی…' : 'همگام‌سازی عملکرد'}
           </button>
         </div>
       </header>

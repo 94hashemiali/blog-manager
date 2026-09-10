@@ -21,6 +21,8 @@ interface HeaderProps {
   onOpenSiteSelector?: () => void;
   currentView?: AppView;
   onChangeView?: (view: AppView) => void;
+  activeJobCount?: number;
+  onOpenJobs?: () => void;
 }
 
 export default function Header({
@@ -34,7 +36,9 @@ export default function Header({
   activeSite,
   onOpenSiteSelector,
   currentView = 'posts',
-  onChangeView
+  onChangeView,
+  activeJobCount = 0,
+  onOpenJobs
 }: HeaderProps) {
   const siteName = activeSite?.name || 'مدنی کمپ';
   const siteUrl = activeSite?.url || 'https://madanicamp.com';
@@ -121,6 +125,17 @@ export default function Header({
 
           {/* Action Buttons */}
           <div className="flex items-center gap-2">
+            {onOpenJobs && (
+              <button
+                onClick={onOpenJobs}
+                className="hidden sm:flex px-3 py-2 text-stone-700 hover:text-stone-900 hover:bg-stone-100 rounded-xl transition-colors border border-stone-200 items-center gap-1.5 text-xs font-semibold"
+                title="مرکز عملیات"
+              >
+                <Activity className="w-4 h-4 text-sky-600" />
+                <span>{activeJobCount > 0 ? `${activeJobCount} عملیات` : 'عملیات'}</span>
+              </button>
+            )}
+
             <button
               onClick={onCreateNewPost}
               className="hidden sm:flex px-3 py-2 text-stone-700 hover:text-stone-900 hover:bg-stone-100 rounded-xl transition-colors border border-stone-200 items-center gap-1.5 text-xs font-semibold"

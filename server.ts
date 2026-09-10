@@ -18,14 +18,13 @@ import { opsRouter } from './server/ops/routes.js';
 import { sanitizeSite } from './server/http.js';
 import { buildHealthPayload } from './server/providers/status.js';
 import { logger, newRequestId } from './server/logger.js';
+import { jobsRouter, operationsRouter, startOpsRuntime } from './server/jobs/index.js';
 import {
   syncSiteIntelligence,
   getContentIndex,
   buildArticleBrief,
   createIntelligenceJob,
-  updateIntelligenceJob,
   getIntelligenceJob,
-  applySyncProgress,
   SYNC_STAGES
 } from './server/intelligence/index.js';
 
@@ -66,6 +65,8 @@ app.use('/api/performance', performanceRouter);
 // Real Research & Evidence Intelligence routes live in server/research/routes.ts.
 app.use('/api/research', researchRouter);
 app.use('/api/ops', opsRouter);
+app.use('/api/jobs', jobsRouter);
+app.use('/api/operations', operationsRouter);
 
 const DEFAULT_WP_URL = 'https://madanicamp.com';
 
@@ -1209,37 +1210,38 @@ app.post('/api/sites/:id/analyze', async (req, res) => {
 
 app.post('/api/sites/:id/sync', async (req, res) => {
   const siteId = req.params.id;
+  if (!db.getSiteById(siteId)) return res.status(404).json({ error: 'سایت یافت نشد' });
   const mode = req.body?.mode === 'incremental' ? 'incremental' : 'full';
-  const job = createIntelligenceJob(siteId);
-  res.json({ jobId: job.id, status: job.status, stage: job.stage, stages: SYNC_STAGES });
-  syncSiteIntelligence({
+
+  const { enqueueJob } = await import('./server/jobs/enqueue.js');
+  const { saveOpsJob } = await import('./server/jobs/store.js');
+  let { job: opsJob, created } = enqueueJob({
     siteId,
-    mode,
-    onProgress: (progress) => applySyncProgress(job.id, progress)
-  })
-    .then((index) => {
-      updateIntelligenceJob(job.id, {
-        status: 'COMPLETED',
-        stage: 'updating_intelligence',
-        result: {
-          articleCount: index.articles.length,
-          articleTotalFromWp: index.articleTotalFromWp,
-          clusterCount: index.clusters.length,
-          opportunityCount: index.opportunities.length,
-          woocommerceAvailable: index.woocommerceAvailable
-        },
-        completedAt: new Date().toISOString(),
-        done: index.articles.length,
-        total: index.articleTotalFromWp || index.articles.length
-      });
-    })
-    .catch((err) => {
-      updateIntelligenceJob(job.id, {
-        status: 'FAILED',
-        error: err.message,
-        completedAt: new Date().toISOString()
-      });
+    type: 'INTELLIGENCE_SYNC',
+    priority: 'LOW',
+    payload: { mode },
+    triggerReason: 'api:site_sync',
+    idempotencyKey: `intel-sync-${siteId}-${mode}`
+  });
+
+  let legacyId = typeof opsJob.payload.legacyJobId === 'string' ? opsJob.payload.legacyJobId : '';
+  if (!legacyId || created) {
+    const legacy = createIntelligenceJob(siteId);
+    legacyId = legacy.id;
+    opsJob = saveOpsJob({
+      ...opsJob,
+      payload: { ...opsJob.payload, mode, legacyJobId: legacyId }
     });
+  }
+
+  res.json({
+    jobId: legacyId,
+    opsJobId: opsJob.id,
+    status: opsJob.status,
+    created,
+    stage: 'connecting',
+    stages: SYNC_STAGES
+  });
 });
 
 app.get('/api/ai/intelligence-jobs/:id', (req, res) => {
@@ -1766,6 +1768,7 @@ async function startServer() {
   }
 
   app.listen(PORT, '0.0.0.0', () => {
+    startOpsRuntime();
     console.log(`Madani Blog Project server running on port ${PORT}`);
   });
 }

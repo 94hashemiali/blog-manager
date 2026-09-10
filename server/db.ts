@@ -233,6 +233,33 @@ export const db = {
   getJobs: () => readJsonFile<any[]>('jobs.json', []),
   saveJobs: (jobs: any[]) => writeJsonFile('jobs.json', jobs),
 
+  getOpsJobStore: () => readJsonFile<any>('ops-jobs.json', null),
+  saveOpsJobStore: (store: any) => writeJsonFile('ops-jobs.json', store),
+
+  getOpsEventStore: (siteId: string) => {
+    return readJsonFile<any>(`ops-events-${safeSiteId(siteId)}.json`, null);
+  },
+  saveOpsEventStore: (siteId: string, store: any) => {
+    writeJsonFile(`ops-events-${safeSiteId(siteId)}.json`, store);
+  },
+
+  getScheduleStore: () => readJsonFile<any>('ops-schedules.json', null),
+  saveScheduleStore: (store: any) => writeJsonFile('ops-schedules.json', store),
+
+  getAutomationStore: (siteId: string) => {
+    return readJsonFile<any>(`automation-${safeSiteId(siteId)}.json`, null);
+  },
+  saveAutomationStore: (siteId: string, store: any) => {
+    writeJsonFile(`automation-${safeSiteId(siteId)}.json`, store);
+  },
+
+  getImpactStore: (siteId: string) => {
+    return readJsonFile<any>(`content-impact-${safeSiteId(siteId)}.json`, null);
+  },
+  saveImpactStore: (siteId: string, store: any) => {
+    writeJsonFile(`content-impact-${safeSiteId(siteId)}.json`, store);
+  },
+
   getContentIndex: (siteId: string) => {
     return readJsonFile<any>(`content-index-${safeSiteId(siteId)}.json`, null);
   },

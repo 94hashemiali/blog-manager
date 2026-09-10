@@ -13,6 +13,7 @@ import {
   listProductionJobs,
   restoreJobVersion,
   runStage,
+  runPipelineJob,
   saveDraftContent,
   type NextArticleRecommendation,
   type ProductionJobSummary,
@@ -24,6 +25,7 @@ import {
   type ContentActionRecommendation
 } from '../utils/performanceClient';
 import { addResearchSource, refreshResearchSession } from '../utils/researchClient';
+import { pollJob } from '../api/jobs';
 
 interface Props {
   activeSite: ManagedSite;
@@ -294,26 +296,20 @@ export default function ContentStudio({
     setBusy('pipeline');
     setError(null);
     try {
-      let current = job;
-      const steps = ['research', 'brief', 'draft', 'fact-check', 'seo-preflight', 'review'] as const;
-      for (const stage of steps) {
-        if (stage === 'research' && current.research) continue;
-        if (stage === 'brief' && current.brief) continue;
-        if (stage === 'draft' && current.draft) continue;
-        if (stage === 'fact-check' && current.factCheck) continue;
-        if (stage === 'seo-preflight' && current.seoPreflight) continue;
-        if (stage === 'review' && (current.stage === 'review' || current.stage === 'approved' || current.stage === 'published')) {
-          continue;
+      const queued = await runPipelineJob(siteId, job.id, {
+        runUntil: 'review',
+        urls: collectResearchUrls()
+      });
+      setBusy(`ops:${queued.jobId}`);
+      await pollJob(queued.jobId, {
+        siteId,
+        intervalMs: 1500,
+        onUpdate: (ops) => {
+          setBusy(`ops:${ops.progress?.label || ops.currentStage || ops.status}`);
         }
-        setBusy(stage);
-        const body =
-          stage === 'research'
-            ? { urls: collectResearchUrls() }
-            : {};
-        const payload = await runStage(siteId, current.id, stage, body);
-        applyJobPayload(payload);
-        current = payload.job;
-      }
+      });
+      const refreshed = await getProductionJob(siteId, job.id);
+      applyJobPayload(refreshed);
       await refreshLists();
     } catch (err: any) {
       setError(err.message);

@@ -13,6 +13,7 @@ import VisualAssetStudio from './components/VisualAssetStudio';
 import ContentStudio from './components/ContentStudio';
 import PerformanceDashboard from './components/PerformanceDashboard';
 import OpsOverview from './components/OpsOverview';
+import JobCenter from './components/JobCenter';
 import { WPPost, WPCategory, SiteSettings, ManagedSite, KeywordOpportunity } from './types';
 import { normalizePost } from './utils/postUtils';
 import type { AppView } from './components/Header';
@@ -22,6 +23,7 @@ import {
   STORAGE_KEY_LOCAL_POSTS,
   STORAGE_KEY_SETTINGS
 } from './demo/seedSite';
+import { useActiveJobs } from './hooks/useActiveJobs';
 
 const DEFAULT_SITE: ManagedSite = DEMO_SITE_SEED;
 
@@ -29,12 +31,14 @@ export default function App() {
   // Navigation View includes ops overview
   const [currentView, setCurrentView] = useState<AppView>('posts');
   const [pendingProductionJobId, setPendingProductionJobId] = useState<string | null>(null);
+  const [jobCenterOpen, setJobCenterOpen] = useState(false);
 
   // Sites state
   const [sites, setSites] = useState<ManagedSite[]>([DEFAULT_SITE]);
   const [activeSiteId, setActiveSiteId] = useState<string>(() => {
     return localStorage.getItem(STORAGE_KEY_ACTIVE_SITE_ID) || 'site-madanicamp';
   });
+  const { activeCount } = useActiveJobs(activeSiteId, true);
 
   const [posts, setPosts] = useState<WPPost[]>([]);
   const [categories, setCategories] = useState<WPCategory[]>([]);
@@ -396,12 +400,20 @@ export default function App() {
         activeSite={activeSite}
         onOpenSiteSelector={() => setIsSiteSelectorOpen(true)}
         currentView={currentView}
+        activeJobCount={activeCount}
+        onOpenJobs={() => setJobCenterOpen(true)}
         onChangeView={(view) => {
           setCurrentView(view);
           if (view !== 'posts') {
             setEditingPost(null);
           }
         }}
+      />
+
+      <JobCenter
+        siteId={activeSiteId}
+        open={jobCenterOpen}
+        onClose={() => setJobCenterOpen(false)}
       />
 
       {/* Main Workspace based on View */}

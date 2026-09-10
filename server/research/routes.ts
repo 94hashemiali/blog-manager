@@ -3,6 +3,7 @@ import { db } from '../db.js';
 import { buildResearchPlan } from './planner.js';
 import { defaultResearchProviders, getWebSearchProvider } from './providers.js';
 import { fetchAndCacheSource, addManualSourceToSession, runGroundedResearch } from './packet.js';
+import { enqueueJob } from '../jobs/enqueue.js';
 import { getResearchSession, listResearchSessions, loadResearchStore } from './store.js';
 import { validateResearchUrl } from './urlSafety.js';
 
@@ -111,21 +112,51 @@ researchRouter.post(
         ? [req.body.url]
         : [];
 
-    const { packet, session } = await runGroundedResearch({
+    // Legacy sync path for tests / explicit wait.
+    if (req.body?.wait === true || req.query.wait === '1') {
+      const { packet, session } = await runGroundedResearch({
+        siteId,
+        topic,
+        primaryKeyword: req.body?.primaryKeyword,
+        searchIntent: req.body?.searchIntent,
+        targetAudience: req.body?.targetAudience,
+        userProvidedFacts: Array.isArray(req.body?.userProvidedFacts)
+          ? req.body.userProvidedFacts.map(String)
+          : [],
+        manualUrls,
+        forceRefreshUrls: Boolean(req.body?.forceRefresh),
+        enrichPlanWithAi: req.body?.enrichWithAi !== false
+      });
+      return res.status(201).json({ success: true, legacy: true, packet, session });
+    }
+
+    const { job, created } = enqueueJob({
       siteId,
-      topic,
-      primaryKeyword: req.body?.primaryKeyword,
-      searchIntent: req.body?.searchIntent,
-      targetAudience: req.body?.targetAudience,
-      userProvidedFacts: Array.isArray(req.body?.userProvidedFacts)
-        ? req.body.userProvidedFacts.map(String)
-        : [],
-      manualUrls,
-      forceRefreshUrls: Boolean(req.body?.forceRefresh),
-      enrichPlanWithAi: req.body?.enrichWithAi !== false
+      type: 'RESEARCH',
+      payload: {
+        topic,
+        primaryKeyword: req.body?.primaryKeyword,
+        searchIntent: req.body?.searchIntent,
+        targetAudience: req.body?.targetAudience,
+        userProvidedFacts: Array.isArray(req.body?.userProvidedFacts)
+          ? req.body.userProvidedFacts.map(String)
+          : [],
+        urls: manualUrls,
+        forceRefresh: Boolean(req.body?.forceRefresh),
+        enrichWithAi: req.body?.enrichWithAi !== false
+      },
+      entityKey: `research:${topic}`,
+      idempotencyKey: `research-${siteId}-${topic}`,
+      triggerReason: 'api:research_analyze'
     });
 
-    res.status(201).json({ success: true, packet, session });
+    res.status(created ? 202 : 200).json({
+      success: true,
+      jobId: job.id,
+      status: job.status,
+      created,
+      message: 'Research job queued'
+    });
   })
 );
 

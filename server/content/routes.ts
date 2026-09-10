@@ -30,6 +30,7 @@ import {
   recoverStaleRunningJobs,
   resumeInterruptedJob
 } from './jobOps.js';
+import { enqueueJob } from '../jobs/enqueue.js';
 import type { ContentProductionJob, PublishOperation, SearchIntent } from './types.js';
 
 const PUBLISH_OPERATIONS: PublishOperation[] = [
@@ -181,7 +182,73 @@ productionRouter.delete('/:siteId/jobs/:jobId', (req, res) => {
   res.json({ success: true });
 });
 
-// --- pipeline stages ----------------------------------------------------
+/** Non-blocking: enqueue durable CONTENT_PRODUCTION / CONTENT_UPDATE ops job. */
+productionRouter.post('/:siteId/jobs/:jobId/run-pipeline', (req, res) => {
+  const job = resolveRunnableJob(req, res);
+  if (!job) return;
+  const runUntil = String(req.body?.runUntil || 'review');
+  const type = job.mode === 'UPDATE' || job.mode === 'MERGE' ? 'CONTENT_UPDATE' : 'CONTENT_PRODUCTION';
+  const { job: opsJob, created } = enqueueJob({
+    siteId: job.siteId,
+    type,
+    productionJobId: job.id,
+    payload: {
+      productionJobId: job.id,
+      runUntil,
+      urls: Array.isArray(req.body?.urls) ? req.body.urls.map(String) : undefined,
+      forceRefreshUrls: Boolean(req.body?.forceRefreshUrls)
+    },
+    priority: type === 'CONTENT_UPDATE' ? 'HIGH' : 'NORMAL',
+    idempotencyKey: `pipeline-${job.siteId}-${job.id}-${runUntil}`,
+    triggerReason: 'api:run_pipeline'
+  });
+  res.status(created ? 202 : 200).json({
+    success: true,
+    created,
+    jobId: opsJob.id,
+    status: opsJob.status,
+    productionJobId: job.id,
+    message: 'Production pipeline queued'
+  });
+});
+
+/** Non-blocking publish via ops runner (gates enforced in handler). */
+productionRouter.post('/:siteId/jobs/:jobId/enqueue-publish', (req, res) => {
+  const job = resolveRunnableJob(req, res);
+  if (!job) return;
+  const operation = String(req.body?.operation || 'SAVE_LOCAL_DRAFT') as PublishOperation;
+  if (!PUBLISH_OPERATIONS.includes(operation)) {
+    return fail(res, 400, `عملیات نامعتبر است. مقادیر مجاز: ${PUBLISH_OPERATIONS.join(', ')}`);
+  }
+  const { job: opsJob, created } = enqueueJob({
+    siteId: job.siteId,
+    type: 'PUBLISH',
+    productionJobId: job.id,
+    payload: {
+      productionJobId: job.id,
+      operation,
+      explicitApproval: Boolean(req.body?.explicitApproval),
+      approvalNote: req.body?.approvalNote,
+      categories: req.body?.categories,
+      featuredImageUrl: req.body?.featuredImageUrl,
+      featuredImageAlt: req.body?.featuredImageAlt,
+      wordpressCategoryIds: req.body?.wordpressCategoryIds,
+      featuredMediaId: req.body?.featuredMediaId
+    },
+    priority: 'HIGH',
+    idempotencyKey: `publish-${job.siteId}-${job.id}-${operation}`,
+    triggerReason: 'api:enqueue_publish'
+  });
+  res.status(created ? 202 : 200).json({
+    success: true,
+    created,
+    jobId: opsJob.id,
+    status: opsJob.status,
+    productionJobId: job.id
+  });
+});
+
+// --- pipeline stages (LEGACY: still sync-in-request; prefer run-pipeline) ----
 
 productionRouter.post(
   '/:siteId/jobs/:jobId/research',

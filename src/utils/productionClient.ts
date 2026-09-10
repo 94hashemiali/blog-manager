@@ -113,6 +113,32 @@ export function runStage(siteId: string, jobId: string, stage: string, body: Rec
   );
 }
 
+/** Non-blocking pipeline via durable ops job. */
+export function runPipelineJob(
+  siteId: string,
+  jobId: string,
+  body: { runUntil?: string; urls?: string[]; forceRefreshUrls?: boolean } = {}
+) {
+  return request<{
+    success: boolean;
+    jobId: string;
+    status: string;
+    created: boolean;
+    productionJobId: string;
+    message?: string;
+  }>(`/api/production/${siteId}/jobs/${jobId}/run-pipeline`, {
+    method: 'POST',
+    body: JSON.stringify(body)
+  });
+}
+
+export function enqueuePublishJob(siteId: string, jobId: string, body: Record<string, unknown> = {}) {
+  return request<{ success: boolean; jobId: string; status: string; created: boolean }>(
+    `/api/production/${siteId}/jobs/${jobId}/enqueue-publish`,
+    { method: 'POST', body: JSON.stringify(body) }
+  );
+}
+
 export function editSection(
   siteId: string,
   jobId: string,

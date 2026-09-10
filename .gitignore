@@ -10,6 +10,7 @@ data/generated-images/
 data/content-index-*.json
 data/production-*.json
 data/performance-*.json
+data/research-*.json
 data/*.bak
 data/*.tmp
 # Runtime state: sites.json holds WordPress application passwords

@@ -6,7 +6,7 @@ import { blocksDrafting, decideDifferentiation } from './differentiation.js';
 import { generateArticleDraft } from './draft.js';
 import { factCheckDraft } from './factcheck.js';
 import { runSeoPreflight } from './seoPreflight.js';
-import { generateResearchPacket } from './research.js';
+import { runGroundedResearch } from '../research/packet.js';
 import { buildPublishingChecklist } from './publishing.js';
 import { validateArticleDraft } from './validation.js';
 import { appendVersion } from './versions.js';
@@ -176,18 +176,59 @@ export function createUpdateProductionJob(params: {
 
 export async function runResearchStage(
   job: ContentProductionJob,
-  params: { userProvidedFacts?: string[] } = {}
+  params: { userProvidedFacts?: string[]; urls?: string[]; forceRefreshUrls?: boolean } = {}
 ): Promise<ContentProductionJob> {
   try {
-    const research = await generateResearchPacket({
+    const existingUrls = (job.research?.sources || [])
+      .map((source) => source.url)
+      .filter((url): url is string => Boolean(url && /^https?:\/\//i.test(url)));
+    const manualUrls = [...new Set([...(params.urls || []), ...existingUrls])];
+
+    const { packet: research, session } = await runGroundedResearch({
       siteId: job.siteId,
       topic: job.topic,
       primaryKeyword: job.primaryKeyword,
       searchIntent: job.searchIntent,
       targetAudience: job.targetAudience,
-      userProvidedFacts: params.userProvidedFacts
+      userProvidedFacts: params.userProvidedFacts,
+      manualUrls,
+      forceRefreshUrls: params.forceRefreshUrls
     });
-    const next = advance({ ...job, research, searchIntent: research.searchIntent }, 'researched');
+
+    const hadDownstream = Boolean(
+      job.brief || job.draft || job.factCheck || job.seoPreflight || job.publishingChecklist
+    );
+
+    let next: ContentProductionJob = {
+      ...job,
+      research: { ...research, researchSessionId: session.id },
+      searchIntent: research.searchIntent
+    };
+
+    // Re-research invalidates artifacts that were grounded on the previous packet.
+    if (hadDownstream) {
+      next = {
+        ...next,
+        brief: undefined,
+        draft: undefined,
+        validation: undefined,
+        factCheck: undefined,
+        seoPreflight: undefined,
+        publishingChecklist: undefined,
+        visualBrief: undefined,
+        internalLinks: []
+      };
+    }
+
+    if (canTransition(next.stage, 'researched')) {
+      next = advance(next, 'researched', hadDownstream ? 'research refreshed; downstream cleared' : undefined);
+    } else if (canTransition(next.stage, 'needs_revision')) {
+      next = advance(next, 'needs_revision', 'research refreshed');
+      next = advance(next, 'researched', 're-enter after research refresh');
+    } else {
+      throw new Error(`نمی‌توان پس از مرحلهٔ ${job.stage} تحقیق را تازه کرد.`);
+    }
+
     return saveJob(next);
   } catch (err: any) {
     saveJob(
@@ -227,11 +268,19 @@ export async function runBriefStage(job: ContentProductionJob): Promise<ContentP
 
 export async function runDraftStage(
   job: ContentProductionJob,
-  params: { regenerationNote?: string } = {}
+  params: { regenerationNote?: string; forceDespiteResearchGate?: boolean } = {}
 ): Promise<ContentProductionJob> {
   if (!job.brief || !job.research) throw new Error('پیش از نگارش باید بریف آماده باشد.');
   if (job.decision && blocksDrafting(job.decision)) {
     throw new Error('موتور تمایز این موضوع را تکراری تشخیص داده است؛ ابتدا تصمیم را بازبینی کنید.');
+  }
+  if (
+    job.research.qualityGate?.status === 'BLOCKED' &&
+    !params.forceDespiteResearchGate
+  ) {
+    throw new Error(
+      `دروازهٔ کیفیت تحقیق مسدود است: ${(job.research.qualityGate.blocking || []).join(' | ') || 'مدارک ناکافی'}`
+    );
   }
 
   const drafting = saveJob(advance(job, 'drafting'));

@@ -282,6 +282,10 @@ export default function AIPostGeneratorModal({
           </button>
         </div>
 
+        <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+          این مسیر یک‌مرحله‌ای منسوخ شده است. برای تحقیق مبتنی بر مدرک، از «استودیوی تولید (Production)» استفاده کنید.
+        </div>
+
         {error && (
           <div className="mb-4 p-3 bg-rose-50 border border-rose-200 rounded-xl text-rose-700 text-xs flex items-center gap-2">
             <span>{error}</span>

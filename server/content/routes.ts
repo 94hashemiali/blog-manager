@@ -142,7 +142,9 @@ productionRouter.post(
     if (!job) return;
     try {
       const next = await runResearchStage(job, {
-        userProvidedFacts: Array.isArray(req.body?.userProvidedFacts) ? req.body.userProvidedFacts.map(String) : []
+        userProvidedFacts: Array.isArray(req.body?.userProvidedFacts) ? req.body.userProvidedFacts.map(String) : [],
+        urls: Array.isArray(req.body?.urls) ? req.body.urls.map(String) : undefined,
+        forceRefreshUrls: Boolean(req.body?.forceRefreshUrls)
       });
       res.json(jobResponse(next));
     } catch (err) {

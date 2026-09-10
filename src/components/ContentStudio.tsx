@@ -23,6 +23,7 @@ import {
   getNextActions,
   type ContentActionRecommendation
 } from '../utils/performanceClient';
+import { addResearchSource, refreshResearchSession } from '../utils/researchClient';
 
 interface Props {
   activeSite: ManagedSite;
@@ -72,6 +73,9 @@ export default function ContentStudio({
   const [sectionAction, setSectionAction] = useState(SECTION_ACTIONS[0].id);
   const [draftTitle, setDraftTitle] = useState('');
   const [draftContent, setDraftContent] = useState('');
+  const [researchUrl, setResearchUrl] = useState('');
+  const [showResearchDetail, setShowResearchDetail] = useState(false);
+  const [researchBusy, setResearchBusy] = useState(false);
 
   const siteId = activeSite.id;
 
@@ -213,6 +217,62 @@ export default function ContentStudio({
     }
   };
 
+  const startResearch = async () => {
+    if (!job) return;
+    await run('research', { urls: collectResearchUrls() });
+  };
+
+  const handleAddResearchSource = async () => {
+    if (!job?.research?.researchSessionId || !researchUrl.trim()) return;
+    setResearchBusy(true);
+    setError(null);
+    try {
+      const url = researchUrl.trim().split(/[\n,]/)[0];
+      await addResearchSource(siteId, job.research.researchSessionId, url);
+      // Re-run research with the new URL so the packet stays in sync.
+      const urls = [
+        ...(job.research.sources || []).map((row: any) => row.url).filter(Boolean),
+        url
+      ];
+      await run('research', { urls: [...new Set(urls)] });
+      setResearchUrl('');
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setResearchBusy(false);
+    }
+  };
+
+  const handleRefreshResearch = async () => {
+    if (!job?.research) return;
+    setResearchBusy(true);
+    setError(null);
+    try {
+      const urls = (job.research.sources || [])
+        .map((row: any) => row.url)
+        .filter((url: string | undefined): url is string => Boolean(url && /^https?:\/\//i.test(url)));
+      if (job.research.researchSessionId) {
+        await refreshResearchSession(siteId, job.research.researchSessionId);
+      }
+      await run('research', { urls, forceRefreshUrls: true });
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setResearchBusy(false);
+    }
+  };
+
+  const collectResearchUrls = () => {
+    const fromInput = researchUrl
+      .split(/[\n,]/)
+      .map((row) => row.trim())
+      .filter(Boolean);
+    const fromJob = (job?.research?.sources || [])
+      .map((row: any) => row.url)
+      .filter((url: string | undefined): url is string => Boolean(url && /^https?:\/\//i.test(url)));
+    return [...new Set([...fromInput, ...fromJob])];
+  };
+
   const run = async (stage: string, body: Record<string, unknown> = {}) => {
     if (!job) return;
     setBusy(stage);
@@ -246,7 +306,11 @@ export default function ContentStudio({
           continue;
         }
         setBusy(stage);
-        const payload = await runStage(siteId, current.id, stage);
+        const body =
+          stage === 'research'
+            ? { urls: collectResearchUrls() }
+            : {};
+        const payload = await runStage(siteId, current.id, stage, body);
         applyJobPayload(payload);
         current = payload.job;
       }
@@ -504,7 +568,7 @@ export default function ContentStudio({
                 {busy ? `در حال ${busy}…` : 'اجرای خط تولید تا بازبینی'}
               </button>
               {!job.research && (
-                <StageButton label="تحقیق" busy={busy} stage="research" onClick={() => run('research')} />
+                <StageButton label="تحقیق" busy={busy} stage="research" onClick={() => startResearch()} />
               )}
               {job.research && !job.brief && (
                 <StageButton label="بریف" busy={busy} stage="brief" onClick={() => run('brief')} />
@@ -551,13 +615,81 @@ export default function ContentStudio({
 
           {job.research && (
             <section className="rounded-2xl border border-stone-200 bg-white p-4">
-              <h3 className="text-sm font-black text-stone-900">بستهٔ تحقیق</h3>
-              <p className="mt-1 text-xs text-stone-500">
-                اطمینان: {job.research.researchConfidence} · {job.research.evidence.length} مدرک ·{' '}
-                {job.research.unknownFacts.length} مورد نامشخص
-              </p>
-              <p className="mt-2 text-sm text-stone-700">{job.research.articleObjective}</p>
-              {job.research.unknownFacts.length > 0 && (
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <h3 className="text-sm font-black text-stone-900">تحقیق</h3>
+                  <p className="mt-1 text-xs text-stone-500">
+                    اطمینان: {job.research.researchConfidence}
+                    {job.research.qualityGate ? ` · کیفیت: ${job.research.qualityGate.status}` : ''}
+                  </p>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setShowResearchDetail((value) => !value)}
+                    className="rounded-lg border border-stone-200 px-2.5 py-1 text-[11px] font-bold text-stone-600"
+                  >
+                    {showResearchDetail ? 'بستن جزئیات' : 'مشاهده تحقیق'}
+                  </button>
+                  <button
+                    type="button"
+                    disabled={researchBusy || Boolean(busy)}
+                    onClick={handleRefreshResearch}
+                    className="rounded-lg border border-stone-200 px-2.5 py-1 text-[11px] font-bold text-stone-600 disabled:opacity-50"
+                  >
+                    تازه‌سازی
+                  </button>
+                </div>
+              </div>
+
+              {job.research.webProviderStatus === 'not_configured' && (
+                <div className="mt-3 rounded-xl border border-dashed border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                  WEB RESEARCH PROVIDER NOT CONFIGURED — جستجوی وب فعال نیست. از ایندکس وردپرس، کاتالوگ محصول و URL دستی استفاده می‌شود. Gemini جستجو نمی‌کند.
+                </div>
+              )}
+
+              <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-5">
+                {[
+                  { label: 'منابع', value: job.research.sources?.length || 0 },
+                  { label: 'مدارک', value: job.research.evidence?.length || 0 },
+                  {
+                    label: 'تأییدشده',
+                    value: (job.research.claims || []).filter((c: any) => c.status === 'SUPPORTED').length
+                  },
+                  {
+                    label: 'نیاز به تأیید',
+                    value: (job.research.claims || []).filter((c: any) => c.status === 'NEEDS_VERIFICATION').length
+                  },
+                  { label: 'تعارض', value: job.research.conflicts?.length || 0 }
+                ].map((cell) => (
+                  <div key={cell.label} className="rounded-xl border border-stone-100 bg-stone-50 px-2 py-2 text-center">
+                    <div className="text-lg font-black text-stone-800">{cell.value}</div>
+                    <div className="text-[10px] font-bold text-stone-500">{cell.label}</div>
+                  </div>
+                ))}
+              </div>
+
+              <p className="mt-3 text-sm text-stone-700">{job.research.articleObjective}</p>
+
+              <div className="mt-3 flex flex-wrap gap-2">
+                <input
+                  value={researchUrl}
+                  onChange={(event) => setResearchUrl(event.target.value)}
+                  placeholder="افزودن منبع: https://..."
+                  className="min-w-[220px] flex-1 rounded-xl border border-stone-200 px-3 py-2 text-xs"
+                  dir="ltr"
+                />
+                <button
+                  type="button"
+                  disabled={researchBusy || !researchUrl.trim()}
+                  onClick={handleAddResearchSource}
+                  className="rounded-xl bg-stone-900 px-3 py-2 text-xs font-black text-white disabled:opacity-50"
+                >
+                  افزودن منبع
+                </button>
+              </div>
+
+              {job.research.unknownFacts?.length > 0 && (
                 <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">
                   <div className="font-bold">قابل تأیید نیست / UNKNOWN</div>
                   <ul className="mt-1 space-y-1">
@@ -567,6 +699,75 @@ export default function ContentStudio({
                   </ul>
                 </div>
               )}
+
+              {showResearchDetail && (
+                <div className="mt-4 space-y-3 border-t border-stone-100 pt-3 text-xs">
+                  <div>
+                    <div className="font-black text-stone-800">منابع</div>
+                    <ul className="mt-1 space-y-1 text-stone-600">
+                      {(job.research.sources || []).slice(0, 12).map((source: any) => (
+                        <li key={source.id}>
+                          {source.label}
+                          {source.url ? (
+                            <>
+                              {' '}
+                              <a href={source.url} target="_blank" rel="noreferrer" className="text-emerald-700 underline">
+                                مشاهده
+                              </a>
+                            </>
+                          ) : null}
+                          {source.notes ? ` · ${source.notes}` : ''}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                  <div>
+                    <div className="font-black text-stone-800">ادعاها</div>
+                    <ul className="mt-1 space-y-2">
+                      {(job.research.claims || []).slice(0, 12).map((claim: any) => (
+                        <li key={claim.id} className="rounded-lg border border-stone-100 bg-stone-50 px-2 py-1.5">
+                          <div className="font-bold text-stone-800">
+                            [{claim.status}] {claim.text}
+                          </div>
+                          <div className="text-stone-500">{claim.reason}</div>
+                        </li>
+                      ))}
+                      {(job.research.claims || []).length === 0 && (
+                        <li className="text-stone-400">هنوز ادعای ساخت‌یافته‌ای ثبت نشده است.</li>
+                      )}
+                    </ul>
+                  </div>
+                  {(job.research.conflicts || []).length > 0 && (
+                    <div>
+                      <div className="font-black text-rose-800">تعارض‌ها</div>
+                      <ul className="mt-1 space-y-1 text-rose-700">
+                        {job.research.conflicts.map((conflict: any) => (
+                          <li key={conflict.id}>
+                            • {conflict.difference} ({conflict.resolutionStatus})
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                </div>
+              )}
+            </section>
+          )}
+
+          {!job.research && job && (
+            <section className="rounded-2xl border border-dashed border-stone-200 bg-stone-50 p-4">
+              <h3 className="text-sm font-black text-stone-900">شروع تحقیق</h3>
+              <p className="mt-1 text-xs text-stone-500">
+                می‌توانید قبل از اجرا یک یا چند URL منبع اضافه کنید (اختیاری).
+              </p>
+              <textarea
+                value={researchUrl}
+                onChange={(event) => setResearchUrl(event.target.value)}
+                placeholder="https://example.com/spec&#10;https://example.com/manual"
+                className="mt-3 w-full rounded-xl border border-stone-200 px-3 py-2 text-xs"
+                rows={3}
+                dir="ltr"
+              />
             </section>
           )}
 
@@ -724,6 +925,17 @@ export default function ContentStudio({
                       <div className="font-bold text-stone-800">{claim.verdict}</div>
                       <div className="text-stone-700">{claim.claim}</div>
                       <div className="text-stone-400">{claim.reason}</div>
+                      {claim.matchedEvidenceId && (
+                        <div className="mt-1 text-[11px] text-emerald-700">
+                          مدرک: {claim.matchedEvidenceId}
+                          {claim.sourceType ? ` · ${claim.sourceType}` : ''}
+                        </div>
+                      )}
+                      {!claim.matchedEvidenceId && claim.requiresAction && (
+                        <div className="mt-1 text-[11px] font-bold text-amber-700">
+                          نیاز به ویرایش / حذف ادعا / یافتن منبع
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>

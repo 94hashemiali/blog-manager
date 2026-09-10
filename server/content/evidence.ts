@@ -36,6 +36,9 @@ export function addEvidence(params: {
   sourceType: EvidenceSourceType;
   confidence?: ConfidenceLevel;
   notes?: string;
+  evidenceText?: string;
+  sourceId?: string;
+  location?: string;
 }): EvidenceItem {
   const trusted = isTrustedSource(params.sourceType);
   const status: EvidenceStatus = trusted
@@ -54,7 +57,10 @@ export function addEvidence(params: {
     confidence,
     verified: trusted,
     status,
-    notes: params.notes
+    notes: params.notes,
+    evidenceText: params.evidenceText,
+    sourceId: params.sourceId,
+    location: params.location
   };
 }
 

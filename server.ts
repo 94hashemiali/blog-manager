@@ -13,6 +13,7 @@ import { resolveGeneratedImagePath } from './server/visual/storage.js';
 import { createVisualJob, updateVisualJob, getVisualJob } from './server/visual/jobs.js';
 import { productionRouter } from './server/content/index.js';
 import { performanceRouter } from './server/performance/index.js';
+import { researchRouter } from './server/research/index.js';
 import {
   syncSiteIntelligence,
   getContentIndex,
@@ -35,6 +36,8 @@ app.use(express.json({ limit: '10mb' }));
 app.use('/api/production', productionRouter);
 // Content Performance Intelligence routes live in server/performance/routes.ts.
 app.use('/api/performance', performanceRouter);
+// Real Research & Evidence Intelligence routes live in server/research/routes.ts.
+app.use('/api/research', researchRouter);
 
 const DEFAULT_WP_URL = 'https://madanicamp.com';
 
@@ -1470,11 +1473,22 @@ app.delete('/api/planner/topics/:id', (req, res) => {
 
 // =============================================================
 // PART 10, 11, 32: ARTICLE GENERATION & DIFFERENCE ENGINE API
+// DEPRECATED: Prefer Content Production OS (/api/production/.../draft).
+// This one-shot path remains for AIPostGeneratorModal until callers migrate.
 // =============================================================
 app.post('/api/ai/generate-article', async (req, res) => {
+  res.setHeader('Deprecation', 'true');
+  res.setHeader('Sunset', 'Sat, 01 Aug 2026 00:00:00 GMT');
+  res.setHeader('Link', '</api/production>; rel="successor-version"');
   try {
     const result = await generateArticleWithDifferenceEngine(req.body);
-    res.json({ success: true, ...result });
+    res.json({
+      success: true,
+      deprecated: true,
+      deprecationMessage:
+        'Use Content Studio /api/production jobs (research → brief → draft). This endpoint will be removed after callers migrate.',
+      ...result
+    });
   } catch (err: any) {
     res.status(422).json({
       success: false,
@@ -1482,7 +1496,8 @@ app.post('/api/ai/generate-article', async (req, res) => {
       errorCode: err.errorCode || 'article_generation_failed',
       error: err.message,
       message: err.message,
-      retryable: err.retryable !== false
+      retryable: err.retryable !== false,
+      deprecated: true
     });
   }
 });

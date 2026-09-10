@@ -99,25 +99,42 @@ QUESTIONS THE ARTICLE MUST ANSWER:
 ${brief.questionsToAnswer.map((question) => `- ${question}`).join('\n')}
 
 VERIFIED FACTS YOU MAY STATE AS FACT:
-${verified.map((item) => `- ${item.claim}`).join('\n') || '- (none)'}
+${verified.map((item) => `- ${item.claim}${item.evidenceText ? ` [snippet: ${item.evidenceText.slice(0, 120)}]` : ''}`).join('\n') || '- (none)'}
+
+RESEARCH CLAIMS (status-aware — do not promote NEEDS_VERIFICATION / CONTRADICTED / UNSUPPORTED to facts):
+${(research.claims || [])
+  .slice(0, 25)
+  .map((claim) => `- [${claim.status}] (${claim.type}) ${claim.text}`)
+  .join('\n') || '- (none)'}
+
+UNRESOLVED CONFLICTS (must not be stated confidently):
+${(research.conflicts || [])
+  .filter((row) => row.resolutionStatus === 'UNRESOLVED')
+  .map((row) => `- ${row.difference}`)
+  .join('\n') || '- (none)'}
+
+WEB RESEARCH STATUS: ${research.webProviderStatus || 'not_configured'}
 
 PRODUCTS THIS SITE ACTUALLY SELLS (only mention these by name):
 ${brief.productsToMention.map((product) => `- ${product}`).join('\n') || '- (none)'}
 
 INTERNAL LINKS TO PLACE (markdown links, ${brief.seoRequirements.minInternalLinks} minimum):
 ${brief.internalLinks
-  .map((link) => `- [${link.anchorText}](/${link.targetSlug || ''}) — ${link.placement} (${link.relationshipType})`)
+  .map((link) => `- [${link.anchorText}](/${link.targetSlug || ''}) — ${link.placement} (${link.relationshipType}) — why: ${link.reason}`)
   .join('\n') || '- (none available)'}
 
 YOU MUST NOT STATE ANY OF THESE AS FACT:
 ${brief.mustNotFabricate.map((risk) => `- ${risk}`).join('\n')}
+${research.unknownFacts.map((fact) => `- ${fact}`).join('\n')}
 
 RULES
+- You are not allowed to introduce factual information that is not supported by the supplied evidence or explicitly marked as general knowledge.
+- For every factual claim: either SUPPORTED_BY_EVIDENCE or mark it NEEDS_VERIFICATION in "claims".
 - Write in ${site.language || 'fa'}, tone: ${site.content?.tone || 'practical'}.
 - Minimum ${brief.seoRequirements.minWordCount} words, at least ${brief.seoRequirements.minH2Count} "##" headings.
 - Meta description between ${brief.seoRequirements.metaDescriptionRange[0]} and ${brief.seoRequirements.metaDescriptionRange[1]} characters.
 - If a number, price, weight, temperature or standard is not in the verified list, describe it qualitatively instead of inventing a value.
-- List every factual statement you made in "claims" so it can be fact-checked.
+- List every factual statement you made in "claims" so it can be fact-checked. Include evidenceId when you used a verified fact.
 ${params.regenerationNote ? `- Regeneration instruction: ${params.regenerationNote}` : ''}
 ${params.previousContent ? `\nPREVIOUS VERSION (change the angle, do not paraphrase):\n${params.previousContent.slice(0, 1500)}` : ''}
 
@@ -131,12 +148,12 @@ Return JSON only:
   "tags": [""],
   "faq": [{"question": "", "answer": ""}],
   "productsMentioned": [""],
-  "claims": [{"claim": "", "sourceHint": "wordpress|product_catalog|user_input|official_source|external_source|ai_inference|unknown"}]
+  "claims": [{"claim": "", "sourceHint": "wordpress|product_catalog|user_input|official_source|external_source|ai_inference|unknown", "evidenceId": ""}]
 }`;
 
   const result = await generateJsonContent({
     stage: 'draft',
-    systemInstruction: `You are the staff writer for ${site.brand?.name || site.name}. You follow the brief exactly, never fabricate figures or sources, and return JSON only.`,
+    systemInstruction: `You are the staff writer for ${site.brand?.name || site.name}. You follow the brief and ONLY the supplied evidence. You never invent figures, URLs, citations or product specs. Unsupported facts must be marked NEEDS_VERIFICATION. Return JSON only.`,
     prompt
   });
 
@@ -150,7 +167,8 @@ Return JSON only:
         claim: String(row.claim || '').trim(),
         sourceHint: (CONTENT_SOURCE_HINTS.includes(String(row.sourceHint) as EvidenceSourceType)
           ? (String(row.sourceHint) as EvidenceSourceType)
-          : 'ai_inference') as EvidenceSourceType
+          : 'ai_inference') as EvidenceSourceType,
+        evidenceId: String(row.evidenceId || '').trim() || undefined
       }))
       .filter((row) => row.claim.length > 0);
 

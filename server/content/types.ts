@@ -73,6 +73,10 @@ export interface EvidenceItem {
   verified: boolean;
   status: EvidenceStatus;
   notes?: string;
+  /** Optional snippet supporting the claim (from URL research). */
+  evidenceText?: string;
+  sourceId?: string;
+  location?: string;
 }
 
 export interface EvidenceCoverage {
@@ -132,6 +136,13 @@ export interface ResearchPacket {
   researchConfidence: ConfidenceLevel;
   generatedAt: string;
   modelUsed?: string;
+  /** Research Intelligence v2 (optional for backward compatibility). */
+  plan?: import('../research/types.js').ResearchPlan;
+  claims?: import('../research/types.js').ResearchClaim[];
+  conflicts?: import('../research/types.js').ResearchConflict[];
+  qualityGate?: import('../research/types.js').ResearchQualityGate;
+  webProviderStatus?: 'not_configured' | 'configured';
+  researchSessionId?: string;
 }
 
 // -------------------------------------------------------------
@@ -265,6 +276,7 @@ export interface DraftSection {
 export interface DraftClaim {
   claim: string;
   sourceHint: EvidenceSourceType;
+  evidenceId?: string;
 }
 
 export interface ArticleDraft {

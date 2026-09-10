@@ -133,6 +133,25 @@ export async function factCheckDraft(params: {
   const claims = extractClaims(params.draft);
   const evidence = params.research.evidence;
   let checked = claims.map((claim) => classifyClaimLocally(claim, evidence));
+
+  // Research-session product contradictions win over a local SUPPORTED guess.
+  for (let i = 0; i < checked.length; i += 1) {
+    const researchClaim = (params.research.claims || []).find(
+      (row) => row.status === 'CONTRADICTED' && row.text === checked[i].claim
+    );
+    if (researchClaim) {
+      checked[i] = {
+        ...checked[i],
+        verdict: 'CONTRADICTED',
+        reason: researchClaim.reason,
+        requiresAction: true
+      };
+      continue;
+    }
+    // Soft match against contradicted research claims by shared tokens is avoided;
+    // only exact text from validateProductClaims is trusted here.
+  }
+
   let modelUsed: string | undefined;
   let degraded = false;
   let degradedReason: string | undefined;

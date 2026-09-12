@@ -132,7 +132,9 @@ export default function Header({
                 title="مرکز عملیات"
               >
                 <Activity className="w-4 h-4 text-sky-600" />
-                <span>{activeJobCount > 0 ? `${activeJobCount} عملیات` : 'عملیات'}</span>
+                <span>
+                  {activeJobCount > 0 ? `${activeJobCount} operations running` : 'Operations'}
+                </span>
               </button>
             )}
 

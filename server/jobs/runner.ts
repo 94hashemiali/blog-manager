@@ -11,6 +11,7 @@ import { emitDomainEvent } from './events.js';
 import { toJobError } from './errors.js';
 import { makeProgress, type OpsJob } from './types.js';
 import { recoverStaleOpsJobs } from './recovery.js';
+import { listRecommendations, updateRecommendationStatus } from '../operations/recommendations.js';
 
 const TICK_MS = 750;
 const MAX_CONCURRENCY = 1;
@@ -23,6 +24,22 @@ const heldJobIds = new Set<string>();
 
 function backoffMs(retryCount: number): number {
   return Math.min(60_000, 1000 * Math.pow(2, Math.max(0, retryCount - 1)));
+}
+
+function completeLinkedRecommendations(job: OpsJob): void {
+  for (const rec of listRecommendations(job.siteId, ['IN_PROGRESS'])) {
+    if (rec.linkedJobId === job.id) {
+      updateRecommendationStatus(job.siteId, rec.id, 'COMPLETED');
+    }
+  }
+}
+
+function reopenLinkedRecommendations(job: OpsJob): void {
+  for (const rec of listRecommendations(job.siteId, ['IN_PROGRESS'])) {
+    if (rec.linkedJobId === job.id) {
+      updateRecommendationStatus(job.siteId, rec.id, 'OPEN');
+    }
+  }
 }
 
 export function startJobRunner(): void {
@@ -176,6 +193,7 @@ export async function executeJob(
       lastError: undefined
     });
     emitDomainEvent({ type: 'JOB_COMPLETED', siteId: latest.siteId, jobId: latest.id });
+    completeLinkedRecommendations(latest);
     return latest;
   } catch (err: any) {
     let latest = refresh();
@@ -235,6 +253,7 @@ export async function executeJob(
       jobId: latest.id,
       metadata: { code: jobError.code, status: failStatus }
     });
+    reopenLinkedRecommendations(latest);
     return latest;
   } finally {
     if (!opts.alreadyClaimed) heldJobIds.delete(jobId);
@@ -249,6 +268,7 @@ function finalizeCancelled(job: OpsJob): OpsJob {
     completedAt: new Date().toISOString()
   });
   emitDomainEvent({ type: 'JOB_CANCELLED', siteId: next.siteId, jobId: next.id });
+  reopenLinkedRecommendations(next);
   return next;
 }
 
@@ -266,6 +286,7 @@ export function requestCancelOpsJob(jobId: string, siteId?: string): OpsJob | un
     status: immediate ? 'CANCELLED' : job.status
   });
   emitDomainEvent({ type: 'JOB_CANCEL_REQUESTED', siteId: next.siteId, jobId: next.id });
+  if (next.status === 'CANCELLED') reopenLinkedRecommendations(next);
   return next;
 }
 

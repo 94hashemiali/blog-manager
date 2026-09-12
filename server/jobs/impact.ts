@@ -26,6 +26,16 @@ export function listContentImpacts(siteId: string): ContentImpactRecord[] {
   return load(siteId).records;
 }
 
+/** Persist or replace a single impact row (idempotent by id). */
+export function upsertContentImpact(record: ContentImpactRecord): ContentImpactRecord {
+  const store = load(record.siteId);
+  const idx = store.records.findIndex((r) => r.id === record.id);
+  if (idx >= 0) store.records[idx] = record;
+  else store.records.unshift(record);
+  save(record.siteId, store);
+  return record;
+}
+
 /** Rebuild OPEN impact rows from STALE research sessions. Idempotent-ish. */
 export function recordSourceImpacts(siteId: string): ContentImpactRecord[] {
   const sessions = listResearchSessions(siteId).filter((s) => s.status === 'STALE' || s.status === 'INVALIDATED');

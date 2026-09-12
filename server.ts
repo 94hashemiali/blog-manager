@@ -19,6 +19,7 @@ import { sanitizeSite } from './server/http.js';
 import { buildHealthPayload } from './server/providers/status.js';
 import { logger, newRequestId } from './server/logger.js';
 import { jobsRouter, operationsRouter, startOpsRuntime } from './server/jobs/index.js';
+import { operationsDomainRouter } from './server/operations/index.js';
 import {
   syncSiteIntelligence,
   getContentIndex,
@@ -66,6 +67,7 @@ app.use('/api/performance', performanceRouter);
 app.use('/api/research', researchRouter);
 app.use('/api/ops', opsRouter);
 app.use('/api/jobs', jobsRouter);
+app.use('/api/operations', operationsDomainRouter);
 app.use('/api/operations', operationsRouter);
 
 const DEFAULT_WP_URL = 'https://madanicamp.com';

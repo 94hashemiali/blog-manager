@@ -203,7 +203,9 @@ operationsRouter.get('/automation/:siteId', (req, res) => {
     settings: store.settings,
     rules: store.rules,
     recommendations: store.recommendations,
-    schedules: listSchedules(req.params.siteId)
+    schedules: listSchedules(req.params.siteId),
+    actionLog: store.actionLog?.slice(0, 20) || [],
+    processedCount: store.processedKeys?.length || 0
   });
 });
 
@@ -212,7 +214,19 @@ operationsRouter.put('/automation/:siteId', (req, res) => {
   const settings = updateAutomationSettings(req.params.siteId, {
     monitoringEnabled: Boolean(req.body?.monitoringEnabled),
     automaticContentGeneration: false,
-    automaticPublishing: false
+    automaticPublishing: false,
+    ...(req.body?.policy
+      ? {
+          policy: ['MONITOR_ONLY', 'RECOMMEND', 'AUTO_RESEARCH', 'AUTO_UPDATE_DRAFT', 'APPROVAL_REQUIRED'].includes(
+            req.body.policy
+          )
+            ? req.body.policy
+            : 'RECOMMEND'
+        }
+      : {}),
+    ...(typeof req.body?.maxActionsPerHour === 'number'
+      ? { maxActionsPerHour: Math.max(1, Math.min(100, req.body.maxActionsPerHour)) }
+      : {})
   });
 
   const intervals = ['disabled', 'daily', 'weekly'] as const;

@@ -1,6 +1,7 @@
 import { db } from '../db.js';
 import type { OpsSchedule } from './types.js';
 import { enqueueJob } from './enqueue.js';
+import { listResearchSessions } from '../research/store.js';
 
 interface ScheduleStore {
   schemaVersion: number;
@@ -85,8 +86,35 @@ export function runDueSchedules(now = Date.now()): Array<{ scheduleId: string; j
         idempotencyKey: `sched-intel-${schedule.siteId}-${schedule.nextRunAt || 'due'}`
       }).job.id;
     } else if (schedule.type === 'RESEARCH_REFRESH') {
-      // Creates recommendation-style research jobs only when payload.topic present — skip bare refresh.
-      // Schedules without topic are no-ops by design (no silent mass refresh).
+      // Batch stale sessions into individual RESEARCH jobs (max 5). No mass refresh.
+      const stale = listResearchSessions(schedule.siteId)
+        .filter((s) => {
+          if (s.status === 'STALE' || s.status === 'INVALIDATED') return true;
+          // Age-based stale without mutating session store here
+          const updated = Date.parse(s.updatedAt || s.createdAt || '');
+          const age = Number.isFinite(updated) ? Date.now() - updated : 0;
+          return age > 7 * 24 * 60 * 60 * 1000 && (s.status === 'READY' || s.status === 'DRAFT');
+        })
+        .slice(0, 5);
+      for (const session of stale) {
+        const queued = enqueueJob({
+          siteId: schedule.siteId,
+          type: 'RESEARCH',
+          payload: {
+            topic: session.topic,
+            forceRefresh: true,
+            researchSessionId: session.id
+          },
+          entityKey: `research:${session.topic}`,
+          priority: 'LOW',
+          triggerReason: 'schedule:RESEARCH_REFRESH',
+          idempotencyKey: `sched-research-${schedule.siteId}-${session.id}-${schedule.nextRunAt || 'due'}`
+        });
+        created.push({ scheduleId: schedule.id, jobId: queued.job.id });
+      }
+      schedule.lastRunAt = new Date(now).toISOString();
+      schedule.nextRunAt = new Date(now + intervalMs(schedule.interval)).toISOString();
+      schedule.updatedAt = schedule.lastRunAt;
       continue;
     }
 

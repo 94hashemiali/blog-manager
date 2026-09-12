@@ -9,7 +9,7 @@
     "start": "node dist/server.cjs",
     "clean": "rm -rf dist server.js",
     "lint": "tsc --noEmit",
-    "test": "tsx server/visual/runTests.ts && tsx server/intelligence/runTests.ts && tsx server/content/runTests.ts && tsx server/performance/runTests.ts && tsx server/research/runTests.ts && tsx server/hardening/runTests.ts && tsx server/jobs/runTests.ts"
+    "test": "tsx server/visual/runTests.ts && tsx server/intelligence/runTests.ts && tsx server/content/runTests.ts && tsx server/performance/runTests.ts && tsx server/research/runTests.ts && tsx server/hardening/runTests.ts && tsx server/jobs/runTests.ts && tsx server/operations/runTests.ts"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",

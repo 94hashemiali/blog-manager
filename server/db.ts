@@ -260,6 +260,13 @@ export const db = {
     writeJsonFile(`content-impact-${safeSiteId(siteId)}.json`, store);
   },
 
+  getRecommendationStore: (siteId: string) => {
+    return readJsonFile<any>(`recommendations-${safeSiteId(siteId)}.json`, null);
+  },
+  saveRecommendationStore: (siteId: string, store: any) => {
+    writeJsonFile(`recommendations-${safeSiteId(siteId)}.json`, store);
+  },
+
   getContentIndex: (siteId: string) => {
     return readJsonFile<any>(`content-index-${safeSiteId(siteId)}.json`, null);
   },

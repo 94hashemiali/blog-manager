@@ -28,8 +28,8 @@ import { useActiveJobs } from './hooks/useActiveJobs';
 const DEFAULT_SITE: ManagedSite = DEMO_SITE_SEED;
 
 export default function App() {
-  // Navigation View includes ops overview
-  const [currentView, setCurrentView] = useState<AppView>('posts');
+  // Navigation View — Operations is default landing after site selection
+  const [currentView, setCurrentView] = useState<AppView>('overview');
   const [pendingProductionJobId, setPendingProductionJobId] = useState<string | null>(null);
   const [jobCenterOpen, setJobCenterOpen] = useState(false);
 
@@ -49,9 +49,8 @@ export default function App() {
     totalPosts?: number;
     message?: string;
   }>({
-    connected: true,
-    siteUrl: 'https://madanicamp.com',
-    totalPosts: 3
+    connected: false,
+    message: 'در حال بررسی اتصال…'
   });
 
   const [isLoading, setIsLoading] = useState(true);
@@ -111,11 +110,23 @@ export default function App() {
     try {
       const targetUrl = activeSite.url || settings.siteUrl;
 
-      // 1. Status
+      // 1. Status — only trust server response (no hardcoded connected/totalPosts)
       const statusRes = await fetch(`/api/wp/status?siteUrl=${encodeURIComponent(targetUrl)}`);
       if (statusRes.ok) {
         const sData = await statusRes.json();
-        setSiteStatus(sData);
+        setSiteStatus({
+          connected: Boolean(sData.connected),
+          siteUrl: sData.siteUrl || targetUrl,
+          responseTimeMs: sData.responseTimeMs,
+          totalPosts: typeof sData.totalPosts === 'number' ? sData.totalPosts : undefined,
+          message: sData.message
+        });
+      } else {
+        setSiteStatus({
+          connected: false,
+          siteUrl: targetUrl,
+          message: 'وضعیت وردپرس تأیید نشد'
+        });
       }
 
       // 2. Categories
@@ -421,6 +432,12 @@ export default function App() {
         {currentView === 'overview' && (
           <OpsOverview
             activeSite={activeSite}
+            onOpenJobs={() => setJobCenterOpen(true)}
+            onOpenSettings={() => setIsSettingsOpen(true)}
+            onOpenProductionJob={(jobId) => {
+              setPendingProductionJobId(jobId);
+              setCurrentView('production');
+            }}
             onOpenView={(view) => setCurrentView(view === 'research' ? 'production' : view)}
           />
         )}

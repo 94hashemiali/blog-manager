@@ -71,8 +71,18 @@ export default function OpsOverview({
 
   useEffect(() => {
     refresh();
-    const id = setInterval(refresh, 12000);
-    return () => clearInterval(id);
+    const id = setInterval(() => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+      refresh();
+    }, 12000);
+    const onVis = () => {
+      if (document.visibilityState === 'visible') refresh();
+    };
+    document.addEventListener('visibilitychange', onVis);
+    return () => {
+      clearInterval(id);
+      document.removeEventListener('visibilitychange', onVis);
+    };
   }, [refresh]);
 
   const runRec = async (rec: OperationRecommendation, mode: 'execute' | 'dismiss') => {
@@ -169,6 +179,113 @@ export default function OpsOverview({
 
       {snapshot && (
         <div className="grid gap-5 lg:grid-cols-3">
+          {/* Next best action — primary */}
+          <section className="lg:col-span-3 rounded-2xl border border-emerald-200 bg-gradient-to-l from-emerald-50 to-white p-5 shadow-sm">
+            <p className="text-[11px] font-bold uppercase tracking-wider text-emerald-700">Recommended next action</p>
+            {snapshot.nextBestAction ? (
+              <div className="mt-2 grid gap-4 lg:grid-cols-3">
+                <div className="lg:col-span-2">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Badge className="bg-emerald-700 text-white">{snapshot.nextBestAction.action}</Badge>
+                    <h2 className="text-lg font-black text-stone-900">{snapshot.nextBestAction.title}</h2>
+                  </div>
+                  <p className="mt-2 text-sm text-stone-700">
+                    {snapshot.nextBestAction.explanation?.whyNow || snapshot.nextBestAction.reasons?.[0]}
+                  </p>
+                  <dl className="mt-3 grid grid-cols-2 gap-2 text-[11px] sm:grid-cols-4">
+                    <div>
+                      <dt className="text-stone-500">Score</dt>
+                      <dd className="font-black">{Math.round((snapshot.nextBestAction.score || 0) * 100)}</dd>
+                    </div>
+                    <div>
+                      <dt className="text-stone-500">Confidence</dt>
+                      <dd className="font-black">{snapshot.nextBestAction.confidence}</dd>
+                    </div>
+                    <div>
+                      <dt className="text-stone-500">Impact</dt>
+                      <dd className="font-black">{snapshot.nextBestAction.expectedImpact}</dd>
+                    </div>
+                    <div>
+                      <dt className="text-stone-500">Blockers</dt>
+                      <dd className="font-black">{snapshot.nextBestAction.blockers?.length || 0}</dd>
+                    </div>
+                  </dl>
+                  {snapshot.nextBestAction.explanation && (
+                    <div className="mt-3 space-y-1 text-[11px] text-stone-600">
+                      <p>
+                        <span className="font-bold">Why:</span> {snapshot.nextBestAction.explanation.whyThis}
+                      </p>
+                      <p>
+                        <span className="font-bold">If executed:</span>{' '}
+                        {snapshot.nextBestAction.explanation.whatHappensIfExecuted}
+                      </p>
+                      <p>
+                        <span className="font-bold">Will NOT:</span>{' '}
+                        {snapshot.nextBestAction.explanation.whatWillNotHappen}
+                      </p>
+                      <p>
+                        <span className="font-bold">Benefit:</span>{' '}
+                        {snapshot.nextBestAction.explanation.expectedBenefit}
+                      </p>
+                    </div>
+                  )}
+                  {(snapshot.nextBestAction.blockers || []).length > 0 && (
+                    <ul className="mt-2 space-y-1">
+                      {snapshot.nextBestAction.blockers.map((b) => (
+                        <li key={b.code} className="rounded-lg border border-amber-200 bg-amber-50 px-2 py-1 text-[11px] text-amber-900">
+                          {b.code}: {b.message}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+                <div className="flex flex-col justify-end gap-2">
+                  {snapshot.nextBestAction.recommendationId && (
+                    <button
+                      type="button"
+                      className="rounded-xl bg-emerald-700 px-4 py-3 text-sm font-black text-white disabled:opacity-50"
+                      disabled={busyId === snapshot.nextBestAction.recommendationId}
+                      onClick={async () => {
+                        const rid = snapshot.nextBestAction!.recommendationId!;
+                        setBusyId(rid);
+                        try {
+                          const result = await executeRecommendation(activeSite.id, rid);
+                          if (result.productionJobId && onOpenProductionJob) {
+                            onOpenProductionJob(result.productionJobId);
+                          }
+                          await refresh();
+                        } catch (err: any) {
+                          setError(err.message);
+                        } finally {
+                          setBusyId(null);
+                        }
+                      }}
+                    >
+                      Review / Execute
+                    </button>
+                  )}
+                  {(snapshot.topActions || []).length > 1 && (
+                    <div className="rounded-xl border border-stone-200 bg-white p-3">
+                      <p className="text-[10px] font-black text-stone-500">TOP ACTIONS</p>
+                      <ul className="mt-1 space-y-1">
+                        {snapshot.topActions!.slice(0, 5).map((a, i) => (
+                          <li key={a.id} className="flex justify-between gap-2 text-[11px]">
+                            <span>
+                              {i + 1}. {a.action}
+                            </span>
+                            <span className="font-mono text-stone-500">{Math.round(a.score * 100)}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                </div>
+              </div>
+            ) : (
+              <p className="mt-2 text-sm text-stone-500">No prioritized next action from current signals.</p>
+            )}
+          </section>
+
           {/* A. Attention — primary column */}
           <section className="space-y-3 lg:col-span-2">
             <div className="flex items-center gap-2">

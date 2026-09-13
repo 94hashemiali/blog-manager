@@ -34,6 +34,7 @@ export type RecommendationType =
   | 'RESEARCH_ARTICLE'
   | 'FIX_SEO'
   | 'REVIEW_SOURCE'
+  | 'REVIEW_ARTICLE'
   | 'SYNC_CONTENT'
   | 'CONFIGURE_PROVIDER'
   | 'RETRY_OPERATION'
@@ -119,6 +120,33 @@ export interface OperationsSnapshot {
   recentEvents: Array<{ eventId: string; type: string; timestamp: string; entityId?: string; jobId?: string }>;
   recentJobs: Array<Record<string, unknown>>;
   reviewQueue: Array<{ id: string; topic: string; stage: string; mode?: string; updatedAt: string }>;
+  nextBestAction?: {
+    id: string;
+    action: string;
+    title: string;
+    score: number;
+    confidence: string;
+    expectedImpact: string;
+    reasons: string[];
+    blockers: Array<{ code: string; message: string }>;
+    explanation?: {
+      whyThis: string;
+      whyNow: string;
+      whatHappensIfExecuted: string;
+      whatWillNotHappen: string;
+      expectedBenefit: string;
+    };
+    recommendationId?: string;
+    articleId?: string | number;
+  } | null;
+  topActions?: Array<{
+    id: string;
+    action: string;
+    title: string;
+    score: number;
+    priority: string;
+    blockers: number;
+  }>;
 }
 
 export interface ContentDiffSection {

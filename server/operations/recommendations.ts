@@ -2,14 +2,16 @@ import crypto from 'crypto';
 import { db } from '../db.js';
 import type {
   AttentionSeverity,
+  AttentionAction,
   OperationRecommendation,
   RecommendationStatus,
   RecommendationType
 } from './types.js';
-import { collectAttention } from './attention.js';
-import { listContentImpacts } from '../jobs/impact.js';
-import { loadPerformanceStore } from '../performance/store.js';
-import { listResearchSessions } from '../research/store.js';
+import { runDecisionEngine } from '../decision/engine.js';
+import { isRecommendationStillNeeded } from '../decision/reeval.js';
+import { mapActionToRecommendationType } from '../decision/actions.js';
+import { updateDecisionStatus } from '../decision/store.js';
+import type { Decision } from '../decision/types.js';
 
 const RECOMMENDATION_SCHEMA = 1;
 
@@ -112,7 +114,9 @@ export function updateRecommendationStatus(
   siteId: string,
   id: string,
   status: RecommendationStatus,
-  patch: Partial<Pick<OperationRecommendation, 'linkedJobId' | 'linkedProductionJobId' | 'metadata'>> = {}
+  patch: Partial<
+    Pick<OperationRecommendation, 'linkedJobId' | 'linkedProductionJobId' | 'metadata'>
+  > = {}
 ): OperationRecommendation | undefined {
   const store = load(siteId);
   const idx = store.recommendations.findIndex((row) => row.id === id);
@@ -120,6 +124,9 @@ export function updateRecommendationStatus(
   store.recommendations[idx] = {
     ...store.recommendations[idx],
     ...patch,
+    metadata: patch.metadata
+      ? { ...(store.recommendations[idx].metadata || {}), ...patch.metadata }
+      : store.recommendations[idx].metadata,
     status,
     updatedAt: new Date().toISOString()
   };
@@ -127,105 +134,94 @@ export function updateRecommendationStatus(
   return store.recommendations[idx];
 }
 
+function suggestedAction(decision: Decision): AttentionAction {
+  switch (decision.recommendedAction) {
+    case 'REFRESH_RESEARCH':
+    case 'RESEARCH':
+      return 'RESEARCH';
+    case 'UPDATE_ARTICLE':
+    case 'FIX_SEO':
+    case 'ADD_INTERNAL_LINKS':
+      return 'UPDATE';
+    case 'SYNC_CONTENT':
+    case 'SYNC_PERFORMANCE':
+      return 'SYNC';
+    case 'CONFIGURE_PROVIDER':
+      return 'CONFIGURE';
+    case 'RETRY_OPERATION':
+      return 'RETRY';
+    default:
+      return 'REVIEW';
+  }
+}
+
+function materializeFromDecisions(siteId: string, decisions: Decision[]): string[] {
+  const ids: string[] = [];
+  for (const decision of decisions) {
+    const recType = mapActionToRecommendationType(decision.recommendedAction) as RecommendationType;
+    const { recommendation } = upsertRecommendation({
+      siteId,
+      type: recType,
+      priority: decision.priority,
+      title: decision.title,
+      explanation: [
+        decision.explanation.whyThis,
+        decision.explanation.whyNow,
+        `score=${decision.score} confidence=${decision.confidence}`
+      ].join(' '),
+      entityId: decision.entityId,
+      articleId: decision.articleId,
+      suggestedAction: suggestedAction(decision),
+      dedupeKey: recommendationDedupeKey({
+        siteId,
+        type: recType,
+        entityId:
+          decision.entityId ||
+          (decision.articleId != null ? String(decision.articleId) : undefined),
+        reasonCategory: `DECISION_${decision.recommendedAction}`
+      }),
+      metadata: {
+        decisionId: decision.id,
+        decisionEngineVersion: decision.decisionEngineVersion,
+        score: decision.score,
+        scoreBreakdown: decision.scoreBreakdown,
+        signals: decision.signals.map((s) => s.type),
+        blockers: decision.blockers,
+        expectedImpact: decision.expectedImpact,
+        opsJobType:
+          decision.recommendedAction === 'SYNC_PERFORMANCE' ? 'PERFORMANCE_SYNC' : undefined
+      }
+    });
+    updateDecisionStatus(siteId, decision.id, 'SELECTED', { recommendationId: recommendation.id });
+    ids.push(recommendation.id);
+  }
+  return ids;
+}
+
 /**
- * Materialize recommendations from current attention/impacts/performance/research.
- * Read-only domain → durable open recommendations (deduped).
+ * Materialize recommendations via Decision Engine + expire stale ones.
+ * Single durable recommendation store — Decision is analysis layer.
  */
 export function syncRecommendationsFromState(siteId: string): OperationRecommendation[] {
-  const created: OperationRecommendation[] = [];
+  const engine = runDecisionEngine(siteId, { persist: true, topN: 8 });
+  const ids = materializeFromDecisions(siteId, engine.topActions);
 
-  for (const impact of listContentImpacts(siteId).filter((r) => r.status === 'OPEN')) {
-    const { recommendation, created: wasCreated } = upsertRecommendation({
-      siteId,
-      type: 'REVIEW_SOURCE',
-      priority: impact.affectedProductionJobIds.length ? 'HIGH' : 'MEDIUM',
-      title: 'Review content after source change',
-      explanation: impact.note || `Source ${impact.sourceUrl} changed; affected sessions need review.`,
-      entityId: impact.id,
-      sourceUrl: impact.sourceUrl,
-      suggestedAction: 'UPDATE',
-      dedupeKey: recommendationDedupeKey({
-        siteId,
-        type: 'REVIEW_SOURCE',
-        entityId: impact.id,
-        reasonCategory: 'SOURCE_CHANGED'
-      }),
-      metadata: {
-        affectedProductionJobIds: impact.affectedProductionJobIds,
-        affectedSessionIds: impact.affectedSessionIds
-      }
-    });
-    if (wasCreated) created.push(recommendation);
+  for (const rec of listRecommendations(siteId, ['OPEN', 'ACKNOWLEDGED'])) {
+    if (rec.metadata?.automationRateLimited) continue;
+    const evalResult = isRecommendationStillNeeded(siteId, rec);
+    if (!evalResult.stillNeeded) {
+      updateRecommendationStatus(siteId, rec.id, 'COMPLETED', {
+        metadata: {
+          expiredReason: evalResult.reason,
+          expiredAt: new Date().toISOString()
+        }
+      });
+    }
   }
 
-  const perf = loadPerformanceStore(siteId);
-  for (const opp of perf.opportunities.filter((o) => o.type === 'UPDATE_ARTICLE')) {
-    const { recommendation, created: wasCreated } = upsertRecommendation({
-      siteId,
-      type: 'UPDATE_ARTICLE',
-      priority: (opp.severity === 'high' ? 'HIGH' : opp.severity === 'medium' ? 'MEDIUM' : 'LOW') as AttentionSeverity,
-      title: `Update article: ${opp.articleTitle || opp.articleId}`,
-      explanation: opp.reason,
-      entityId: String(opp.articleId),
-      articleId: opp.articleId,
-      suggestedAction: 'UPDATE',
-      dedupeKey: recommendationDedupeKey({
-        siteId,
-        type: 'UPDATE_ARTICLE',
-        entityId: String(opp.articleId),
-        reasonCategory: opp.type
-      }),
-      metadata: {
-        opportunityId: opp.id,
-        evidence: opp.evidence,
-        contributingSignals: opp.contributingSignals
-      }
-    });
-    if (wasCreated) created.push(recommendation);
-  }
-
-  for (const session of listResearchSessions(siteId).filter(
-    (s) => s.status === 'STALE' || s.status === 'INVALIDATED'
-  )) {
-    const { recommendation, created: wasCreated } = upsertRecommendation({
-      siteId,
-      type: 'RESEARCH_REFRESH',
-      priority: 'MEDIUM',
-      title: `Refresh research: ${session.topic}`,
-      explanation: `Research session is ${session.status}.`,
-      entityId: session.id,
-      suggestedAction: 'RESEARCH',
-      dedupeKey: recommendationDedupeKey({
-        siteId,
-        type: 'RESEARCH_REFRESH',
-        entityId: session.id,
-        reasonCategory: session.status
-      }),
-      metadata: { topic: session.topic, status: session.status }
-    });
-    if (wasCreated) created.push(recommendation);
-  }
-
-  // Failed ops jobs → retry recommendations
-  for (const att of collectAttention(siteId).filter((a) => a.type === 'JOB_FAILED' || a.type === 'JOB_RECOVERY_REQUIRED')) {
-    const { recommendation, created: wasCreated } = upsertRecommendation({
-      siteId,
-      type: 'RETRY_OPERATION',
-      priority: att.severity,
-      title: att.title,
-      explanation: att.description,
-      entityId: att.jobId || att.entityId,
-      suggestedAction: 'RETRY',
-      dedupeKey: recommendationDedupeKey({
-        siteId,
-        type: 'RETRY_OPERATION',
-        entityId: att.jobId || att.id,
-        reasonCategory: att.type
-      }),
-      metadata: { jobId: att.jobId, attentionType: att.type }
-    });
-    if (wasCreated) created.push(recommendation);
-  }
-
-  return created;
+  return ids
+    .map((id) => getRecommendation(siteId, id))
+    .filter((r): r is OperationRecommendation => Boolean(r));
 }
+
+export type { AttentionSeverity };

@@ -3,8 +3,10 @@ import { db } from '../db.js';
 import type { AutomationRule, DomainEvent, DomainEventType } from './types.js';
 import { enqueueJob } from './enqueue.js';
 import { listDomainEvents } from './events.js';
-import type { AutomationPolicy } from '../operations/types.js';
+import type { AutomationPolicy } from '../decision/types.js';
 import { upsertRecommendation, recommendationDedupeKey } from '../operations/recommendations.js';
+import { runDecisionEngine } from '../decision/engine.js';
+import { applyPolicyToDecision } from '../decision/policy.js';
 
 const DEFAULT_MAX_ACTIONS_PER_HOUR = 20;
 const PROCESSED_CAP = 500;
@@ -384,6 +386,59 @@ export function applyAutomationForEvent(event: DomainEvent): Array<{ action: str
   }
 
   if (dirty) saveAutomation(event.siteId, store);
+
+  // Decision Engine chooses WHAT; policy chooses WHETHER.
+  // Process once per event (loop protection) via synthetic processed key.
+  const decisionKey = processedKey(event.eventId, '__decision_engine__');
+  if (!store.processedKeys.includes(decisionKey)) {
+    try {
+      if (countActionsLastHour(store.actionLog) >= maxPerHour) {
+        upsertRecommendation({
+          siteId: event.siteId,
+          type: 'RETRY_OPERATION',
+          priority: 'MEDIUM',
+          title: 'Automation rate limited',
+          explanation: `Max ${maxPerHour} automated actions/hour exceeded before Decision Engine apply.`,
+          entityId: event.eventId,
+          triggerEventId: event.eventId,
+          suggestedAction: 'VIEW',
+          dedupeKey: recommendationDedupeKey({
+            siteId: event.siteId,
+            type: 'RETRY_OPERATION',
+            entityId: `rate-limit-decision-${new Date().toISOString().slice(0, 13)}`,
+            reasonCategory: 'AUTOMATION_RATE_LIMITED'
+          }),
+          metadata: { automationRateLimited: true, eventType: event.type, via: 'decision_engine' }
+        });
+        results.push({ action: 'AUTOMATION_RATE_LIMITED' });
+      } else {
+        const engine = runDecisionEngine(event.siteId, { persist: true, topN: 3 });
+        if (engine.nextBest) {
+          const applied = applyPolicyToDecision(event.siteId, engine.nextBest, policy);
+          results.push({
+            action: `DECISION_${applied.outcome}`,
+            jobId: applied.jobId
+          });
+          if (applied.outcome === 'executed' || applied.outcome === 'recommended') {
+            store.actionLog.unshift({
+              at: new Date().toISOString(),
+              ruleId: '__decision_engine__',
+              eventId: event.eventId,
+              action: `DECISION_${applied.outcome}`,
+              jobId: applied.jobId
+            });
+            store.actionLog = store.actionLog.slice(0, ACTION_LOG_CAP);
+          }
+        }
+      }
+      store.processedKeys.unshift(decisionKey);
+      store.processedKeys = store.processedKeys.slice(0, PROCESSED_CAP);
+      saveAutomation(event.siteId, store);
+    } catch {
+      /* decision layer optional */
+    }
+  }
+
   return results;
 }
 

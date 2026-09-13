@@ -10,6 +10,29 @@ import {
   updateRecommendationStatus
 } from './recommendations.js';
 import type { OperationRecommendation } from './types.js';
+import { isRecommendationStillNeeded } from '../decision/reeval.js';
+import { checkActionFeasibility } from '../decision/actions.js';
+import type { DecisionAction } from '../decision/types.js';
+
+function recTypeToAction(type: string, metadata?: Record<string, unknown>): DecisionAction {
+  switch (type) {
+    case 'RESEARCH_REFRESH':
+    case 'RESEARCH_ARTICLE':
+      return 'REFRESH_RESEARCH';
+    case 'FIX_SEO':
+      return 'FIX_SEO';
+    case 'REVIEW_SOURCE':
+      return 'REVIEW_SOURCE';
+    case 'SYNC_CONTENT':
+      return metadata?.opsJobType === 'PERFORMANCE_SYNC' ? 'SYNC_PERFORMANCE' : 'SYNC_CONTENT';
+    case 'CONFIGURE_PROVIDER':
+      return 'CONFIGURE_PROVIDER';
+    case 'RETRY_OPERATION':
+      return 'RETRY_OPERATION';
+    default:
+      return 'UPDATE_ARTICLE';
+  }
+}
 
 export function executeRecommendation(
   siteId: string,
@@ -32,6 +55,39 @@ export function executeRecommendation(
       productionJobId: rec.linkedProductionJobId,
       message: 'Already in progress'
     };
+  }
+
+  // Re-evaluate before execution — never blindly run a stale recommendation.
+  const still = isRecommendationStillNeeded(siteId, rec);
+  if (!still.stillNeeded) {
+    const updated =
+      updateRecommendationStatus(siteId, rec.id, 'COMPLETED', {
+        metadata: { expiredReason: still.reason, expiredAt: new Date().toISOString() }
+      }) || rec;
+    return {
+      recommendation: updated,
+      message: `No longer necessary: ${still.reason}`
+    };
+  }
+
+  const syncAction = recTypeToAction(rec.type, rec.metadata);
+  const feasibility = checkActionFeasibility(siteId, syncAction, {
+    articleId: rec.articleId,
+    entityId: rec.entityId,
+    topic: String(rec.metadata?.topic || '')
+  });
+  if (
+    !feasibility.feasible &&
+    syncAction !== 'REVIEW_SOURCE' &&
+    syncAction !== 'CONFIGURE_PROVIDER' &&
+    syncAction !== 'REVIEW_ARTICLE'
+  ) {
+    if (feasibility.redirectTo) {
+      throw new Error(
+        `Blocked: ${feasibility.blockers.map((b) => b.message).join('; ')}. Try ${feasibility.redirectTo} first.`
+      );
+    }
+    throw new Error(feasibility.blockers.map((b) => b.message).join('; ') || 'Action not feasible');
   }
 
   if (rec.type === 'RETRY_OPERATION') {
@@ -75,7 +131,9 @@ export function executeRecommendation(
       payload: {
         topic,
         forceRefresh: true,
-        researchSessionId: session?.id
+        researchSessionId: session?.id,
+        recommendationId: rec.id,
+        decisionId: rec.metadata?.decisionId
       },
       entityKey: `research:${topic}`,
       triggerReason: rec.title,
@@ -89,7 +147,6 @@ export function executeRecommendation(
 
   if (rec.type === 'UPDATE_ARTICLE' || rec.type === 'FIX_SEO' || rec.type === 'REVIEW_SOURCE') {
     const articleId = rec.articleId ?? rec.metadata?.articleId;
-    // REVIEW_SOURCE may link via impact → production jobs; require explicit article for UPDATE.
     if (articleId == null && rec.type !== 'REVIEW_SOURCE') {
       throw new Error('articleId required for update');
     }
@@ -120,7 +177,6 @@ export function executeRecommendation(
         })
       : undefined;
 
-    // Prefer existing linked production job over creating duplicates.
     let productionId = rec.linkedProductionJobId;
     if (!productionId) {
       const production = createUpdateProductionJob({
@@ -132,9 +188,11 @@ export function executeRecommendation(
           ...(Array.isArray(rec.metadata?.contributingSignals)
             ? (rec.metadata!.contributingSignals as string[])
             : []),
+          ...(Array.isArray(rec.metadata?.signals) ? (rec.metadata!.signals as string[]) : []),
           rec.type,
-          rec.dedupeKey
-        ],
+          rec.dedupeKey,
+          String(rec.metadata?.decisionId || '')
+        ].filter(Boolean),
         mode: 'UPDATE'
       });
       productionId = production.id;
@@ -148,8 +206,10 @@ export function executeRecommendation(
         productionJobId: productionId,
         runUntil: 'review',
         recommendationId: rec.id,
+        decisionId: rec.metadata?.decisionId,
         triggerEventId: rec.triggerEventId,
-        updateReason: rec.explanation
+        updateReason: rec.explanation,
+        focus: rec.type === 'FIX_SEO' ? 'SEO' : 'UPDATE'
       },
       priority: 'HIGH',
       triggerReason: rec.title,
@@ -174,6 +234,14 @@ export function executeRecommendation(
   if (rec.type === 'CONFIGURE_PROVIDER') {
     const updated = updateRecommendationStatus(siteId, rec.id, 'ACKNOWLEDGED') || rec;
     return { recommendation: updated, message: 'Open provider settings' };
+  }
+
+  if (rec.type === 'REVIEW_ARTICLE') {
+    const updated = updateRecommendationStatus(siteId, rec.id, 'ACKNOWLEDGED') || rec;
+    return {
+      recommendation: updated,
+      message: 'Open article for human review — no draft job created'
+    };
   }
 
   throw new Error(`Unsupported recommendation type: ${rec.type}`);

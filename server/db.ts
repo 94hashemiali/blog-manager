@@ -267,6 +267,13 @@ export const db = {
     writeJsonFile(`recommendations-${safeSiteId(siteId)}.json`, store);
   },
 
+  getDecisionStore: (siteId: string) => {
+    return readJsonFile<any>(`decisions-${safeSiteId(siteId)}.json`, null);
+  },
+  saveDecisionStore: (siteId: string, store: any) => {
+    writeJsonFile(`decisions-${safeSiteId(siteId)}.json`, store);
+  },
+
   getContentIndex: (siteId: string) => {
     return readJsonFile<any>(`content-index-${safeSiteId(siteId)}.json`, null);
   },

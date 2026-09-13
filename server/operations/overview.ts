@@ -11,6 +11,7 @@ import { loadPerformanceStore } from '../performance/store.js';
 import { listResearchSessions } from '../research/store.js';
 import { listJobs as listProductionJobs } from '../content/store.js';
 import type { OperationsSnapshot } from './types.js';
+import { listDecisions } from '../decision/store.js';
 
 function publicJob(job: ReturnType<typeof listOpsJobs>[number]) {
   return {
@@ -88,6 +89,12 @@ export function buildOperationsSnapshot(
       updatedAt: j.updatedAt
     }));
 
+  const decisionRows = listDecisions(siteId, ['OPEN', 'SELECTED']).sort(
+    (a, b) => b.score - a.score
+  );
+  const next = decisionRows.find((d) => d.status === 'SELECTED') || decisionRows[0] || null;
+  const topActions = decisionRows.slice(0, 5);
+
   return {
     siteId,
     generatedAt: new Date().toISOString(),
@@ -145,6 +152,29 @@ export function buildOperationsSnapshot(
       jobId: e.jobId
     })),
     recentJobs: jobs.slice(0, 20).map(publicJob),
-    reviewQueue
+    reviewQueue,
+    nextBestAction: next
+      ? {
+          id: next.id,
+          action: next.recommendedAction,
+          title: next.title,
+          score: next.score,
+          confidence: next.confidence,
+          expectedImpact: next.expectedImpact,
+          reasons: next.reasons,
+          blockers: next.blockers,
+          explanation: next.explanation,
+          recommendationId: next.recommendationId,
+          articleId: next.articleId
+        }
+      : null,
+    topActions: topActions.map((d) => ({
+      id: d.id,
+      action: d.recommendedAction,
+      title: d.title,
+      score: d.score,
+      priority: d.priority,
+      blockers: d.blockers.length
+    }))
   };
 }

@@ -1,14 +1,15 @@
 import MissionTaskGraph from './MissionTaskGraph';
+import type { MissionEdge, MissionTask } from '../../api/missions';
 
-/** Alias component for plan-only view. */
+/** Alias for plan-only view. */
 export default function MissionPlan({
   tasks,
   order,
   edges
 }: {
-  tasks: any[];
+  tasks: MissionTask[];
   order?: string[];
-  edges?: any[];
+  edges?: MissionEdge[];
 }) {
   return <MissionTaskGraph tasks={tasks} order={order} edges={edges} />;
 }

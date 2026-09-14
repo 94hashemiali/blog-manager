@@ -1,22 +1,11 @@
-interface Task {
-  id: string;
-  title: string;
-  type: string;
-  status: string;
-  priority?: string;
-  confidence?: string;
-  expectedImpact?: string;
-  dependsOn?: string[];
-  blockers?: Array<{ code: string; message: string }>;
-  decisionId?: string;
-  recommendationId?: string;
-  jobId?: string;
-}
+import type { MissionEdge, MissionTask } from '../../api/missions';
 
 interface Props {
-  tasks: Task[];
+  tasks: MissionTask[];
   order?: string[];
-  edges?: Array<{ from: string; to: string; reason: string }>;
+  edges?: MissionEdge[];
+  selectedId?: string | null;
+  onSelect?: (id: string) => void;
 }
 
 const STATUS_COLOR: Record<string, string> = {
@@ -32,55 +21,68 @@ const STATUS_COLOR: Record<string, string> = {
   SKIPPED: 'border-stone-200 bg-stone-50 text-stone-500'
 };
 
-export default function MissionTaskGraph({ tasks, order }: Props) {
+export default function MissionTaskGraph({
+  tasks,
+  order,
+  edges = [],
+  selectedId,
+  onSelect
+}: Props) {
   const byId = new Map(tasks.map((t) => [t.id, t]));
-  const sequence = (order?.length ? order.map((id) => byId.get(id)).filter(Boolean) : tasks) as Task[];
+  const sequence = (order?.length ? order.map((id) => byId.get(id)).filter(Boolean) : tasks) as MissionTask[];
+  const edgeReason = (from: string, to: string) =>
+    edges.find((e) => e.from === from && e.to === to)?.reason;
 
   if (!sequence.length) {
-    return <p className="text-sm text-stone-400">No tasks in plan.</p>;
+    return <p className="text-sm text-stone-400">تسکی در plan نیست.</p>;
   }
 
   return (
     <ol className="space-y-0">
-      {sequence.map((task, i) => (
-        <li key={task.id}>
-          <div
-            className={`rounded-xl border px-3 py-3 text-xs ${STATUS_COLOR[task.status] || STATUS_COLOR.PENDING}`}
-          >
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="rounded bg-black/10 px-1.5 py-0.5 text-[10px] font-black uppercase">
-                {task.type}
-              </span>
-              <span className="font-black">{task.title}</span>
-              <span className="text-[10px] font-bold uppercase opacity-70">{task.status}</span>
-            </div>
-            <div className="mt-1.5 flex flex-wrap gap-2 text-[10px] opacity-80">
-              {task.priority && <span>priority {task.priority}</span>}
-              {task.confidence && <span>confidence {task.confidence}</span>}
-              {task.expectedImpact && <span>impact {task.expectedImpact}</span>}
-            </div>
-            {(task.blockers || []).length > 0 && (
-              <p className="mt-1 text-[10px]">
-                Blocker: {task.blockers![0].code} — {task.blockers![0].message}
-              </p>
+      {sequence.map((task, i) => {
+        const prev = sequence[i - 1];
+        const depNote =
+          prev && task.dependsOn.includes(prev.id)
+            ? edgeReason(prev.id, task.id) || 'dependency'
+            : task.dependsOn.length
+              ? `${task.dependsOn.length} deps`
+              : null;
+        return (
+          <li key={task.id}>
+            <button
+              type="button"
+              onClick={() => onSelect?.(task.id)}
+              className={`w-full rounded-xl border px-3 py-3 text-right text-xs transition ${
+                STATUS_COLOR[task.status] || STATUS_COLOR.PENDING
+              } ${selectedId === task.id ? 'ring-2 ring-emerald-400' : ''}`}
+            >
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="rounded bg-black/10 px-1.5 py-0.5 text-[10px] font-black uppercase">
+                  {task.type}
+                </span>
+                <span className="font-black">{task.title}</span>
+                <span className="text-[10px] font-bold uppercase opacity-70">{task.status}</span>
+              </div>
+              <div className="mt-1.5 flex flex-wrap gap-2 text-[10px] opacity-80">
+                <span>priority {task.priority}</span>
+                {task.confidence && <span>confidence {task.confidence}</span>}
+                {task.expectedImpact && <span>impact {task.expectedImpact}</span>}
+                {depNote && <span>↳ {depNote}</span>}
+              </div>
+              {(task.blockers || []).length > 0 && (
+                <p className="mt-1 text-[10px]">
+                  Blocker: {task.blockers[0].code} — {task.blockers[0].message}
+                </p>
+              )}
+            </button>
+            {i < sequence.length - 1 && (
+              <div className="flex justify-center py-1 text-stone-400" aria-hidden>
+                ↓
+              </div>
             )}
-            <p className="mt-1 font-mono text-[10px] opacity-60">
-              {[
-                task.decisionId ? `dec ${task.decisionId.slice(0, 12)}` : null,
-                task.recommendationId ? `rec ${task.recommendationId.slice(0, 12)}` : null,
-                task.jobId ? `job ${task.jobId.slice(0, 12)}` : null
-              ]
-                .filter(Boolean)
-                .join(' · ')}
-            </p>
-          </div>
-          {i < sequence.length - 1 && (
-            <div className="flex justify-center py-1 text-stone-400" aria-hidden>
-              ↓
-            </div>
-          )}
-        </li>
-      ))}
+          </li>
+        );
+      })}
     </ol>
   );
 }

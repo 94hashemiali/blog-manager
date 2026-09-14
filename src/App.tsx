@@ -14,6 +14,7 @@ import ContentStudio from './components/ContentStudio';
 import PerformanceDashboard from './components/PerformanceDashboard';
 import OpsOverview from './components/OpsOverview';
 import JobCenter from './components/JobCenter';
+import MissionsView from './components/missions/MissionsView';
 import { WPPost, WPCategory, SiteSettings, ManagedSite, KeywordOpportunity } from './types';
 import { normalizePost } from './utils/postUtils';
 import type { AppView } from './components/Header';
@@ -31,6 +32,7 @@ export default function App() {
   // Navigation View — Operations is default landing after site selection
   const [currentView, setCurrentView] = useState<AppView>('overview');
   const [pendingProductionJobId, setPendingProductionJobId] = useState<string | null>(null);
+  const [pendingMissionId, setPendingMissionId] = useState<string | null>(null);
   const [jobCenterOpen, setJobCenterOpen] = useState(false);
 
   // Sites state
@@ -438,7 +440,26 @@ export default function App() {
               setPendingProductionJobId(jobId);
               setCurrentView('production');
             }}
-            onOpenView={(view) => setCurrentView(view === 'research' ? 'production' : view)}
+            onOpenView={(view) =>
+              setCurrentView(view === 'research' ? 'production' : view)
+            }
+            onOpenMission={(missionId) => {
+              setPendingMissionId(missionId);
+              setCurrentView('missions');
+            }}
+          />
+        )}
+
+        {currentView === 'missions' && (
+          <MissionsView
+            siteId={activeSite.id}
+            initialMissionId={pendingMissionId}
+            onInitialMissionConsumed={() => setPendingMissionId(null)}
+            onOpenJob={(jobId) => {
+              setPendingProductionJobId(jobId);
+              setCurrentView('production');
+            }}
+            onOpenDecision={() => setCurrentView('overview')}
           />
         )}
 

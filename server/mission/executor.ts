@@ -15,6 +15,7 @@ import {
   savePlan,
   upsertMission
 } from './store.js';
+import { reevaluateMissionAfterTaskChange } from './softReplan.js';
 import {
   MAX_CONCURRENT_MISSION_TASKS,
   type Mission,
@@ -202,6 +203,8 @@ export function startMission(siteId: string, missionId: string): {
   let mission = getMission(siteId, missionId);
   if (!mission || mission.siteId !== siteId) throw new Error('Mission not found');
   if (mission.status === 'CANCELLED') throw new Error('Mission cancelled');
+  if (mission.status === 'PAUSED') throw new Error('Mission is paused — use resume');
+  if (mission.status === 'COMPLETED') throw new Error('Mission already completed');
 
   if (!mission.activePlanId) {
     const { mission: planned } = replanMission(siteId, missionId, 'Plan on start');
@@ -235,6 +238,9 @@ export function startMission(siteId: string, missionId: string): {
 export function pauseMission(siteId: string, missionId: string): Mission {
   const mission = getMission(siteId, missionId);
   if (!mission || mission.siteId !== siteId) throw new Error('Mission not found');
+  if (mission.status === 'CANCELLED' || mission.status === 'COMPLETED') {
+    throw new Error(`Cannot pause mission in ${mission.status}`);
+  }
   const updated = {
     ...mission,
     status: 'PAUSED' as const,
@@ -243,6 +249,47 @@ export function pauseMission(siteId: string, missionId: string): Mission {
   upsertMission(siteId, updated);
   emit('MISSION_PAUSED', siteId, missionId);
   return updated;
+}
+
+/** Resume a PAUSED mission → RUNNING (or WAITING_FOR_REVIEW if next needs human). */
+export function resumeMission(siteId: string, missionId: string): {
+  mission: Mission;
+  next: NextTaskResult;
+} {
+  let mission = getMission(siteId, missionId);
+  if (!mission || mission.siteId !== siteId) throw new Error('Mission not found');
+  if (mission.status !== 'PAUSED') {
+    throw new Error(`Mission is ${mission.status}, not PAUSED`);
+  }
+  if (!mission.activePlanId) {
+    const { mission: planned } = replanMission(siteId, missionId, 'Plan on resume');
+    mission = planned;
+  }
+  // Catch job completions / domain drift while paused
+  syncMissionTaskJobs(siteId, missionId);
+  mission = getMission(siteId, missionId) || mission;
+
+  mission = {
+    ...mission,
+    status: 'RUNNING',
+    updatedAt: new Date().toISOString()
+  };
+  upsertMission(siteId, mission);
+  emit('MISSION_STARTED', siteId, missionId, { resumed: true });
+  reevaluateMissionAfterTaskChange(siteId, missionId, 'Resume re-evaluation');
+  mission = getMission(siteId, missionId) || mission;
+
+  const next = getNextExecutableTask(siteId, missionId);
+  if (next.reason === 'WAITING_FOR_REVIEW') {
+    mission = {
+      ...mission,
+      status: 'WAITING_FOR_REVIEW',
+      updatedAt: new Date().toISOString()
+    };
+    upsertMission(siteId, mission);
+    emit('MISSION_WAITING_REVIEW', siteId, missionId, { taskId: next.task?.id });
+  }
+  return { mission: getMission(siteId, missionId) || mission, next };
 }
 
 export function cancelMission(siteId: string, missionId: string): Mission {
@@ -426,6 +473,8 @@ export function executeMissionTask(
       });
       emit('MISSION_TASK_COMPLETED', siteId, missionId, { taskId: task.id });
       mission = maybeCompleteOrAdvance(siteId, missionId);
+      reevaluateMissionAfterTaskChange(siteId, missionId, 'Task completed immediately');
+      mission = getMission(siteId, missionId) || mission;
       return {
         mission,
         task: getActivePlan(siteId, mission)!.tasks.find((t) => t.id === task.id)!,
@@ -463,6 +512,8 @@ export function executeMissionTask(
       taskId: task.id,
       error: err?.message
     });
+    maybeCompleteOrAdvance(siteId, missionId);
+    reevaluateMissionAfterTaskChange(siteId, missionId, 'Task failed');
     throw err;
   }
 }
@@ -507,6 +558,8 @@ export function approveMissionTask(
   upsertMission(siteId, updated);
   emit('MISSION_TASK_COMPLETED', siteId, missionId, { taskId, approved: true });
   updated = maybeCompleteOrAdvance(siteId, missionId);
+  reevaluateMissionAfterTaskChange(siteId, missionId, 'Review approved');
+  updated = getMission(siteId, missionId) || updated;
   return {
     mission: updated,
     task: getActivePlan(siteId, updated)!.tasks.find((t) => t.id === taskId)!,
@@ -560,7 +613,11 @@ export function syncMissionTaskJobs(siteId: string, missionId: string): Mission 
   if (changed) {
     savePlan(siteId, { ...plan, tasks });
   }
-  return maybeCompleteOrAdvance(siteId, missionId);
+  const updated = maybeCompleteOrAdvance(siteId, missionId);
+  if (changed) {
+    reevaluateMissionAfterTaskChange(siteId, missionId, 'Job sync task change');
+  }
+  return getMission(siteId, missionId) || updated;
 }
 
 function maybeCompleteOrAdvance(siteId: string, missionId: string): Mission {

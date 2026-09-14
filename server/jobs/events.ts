@@ -51,5 +51,15 @@ export function emitDomainEvent(params: {
       }
     })
     .catch(() => undefined);
+  // Mission post-measure / job sync — separate from automation policy.
+  void import('../mission/hooks.js')
+    .then((mod) => {
+      try {
+        mod.applyMissionHooksForEvent(event);
+      } catch (err) {
+        console.warn('mission hooks failed', err);
+      }
+    })
+    .catch(() => undefined);
   return event;
 }

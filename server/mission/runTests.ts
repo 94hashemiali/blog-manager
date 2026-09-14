@@ -18,6 +18,7 @@ const {
   createMission,
   startMission,
   pauseMission,
+  resumeMission,
   cancelMission,
   executeMissionTask,
   getNextExecutableTask,
@@ -218,13 +219,16 @@ await run('next executable task + concurrency constant', () => {
   assert.ok(next.task || next.reason);
 });
 
-await run('start / pause / cancel', () => {
+await run('start / pause / resume / cancel', () => {
   const m = createMission(SITE, { title: 'Lifecycle', goal: 'CUSTOM' });
   planMission(SITE, m.id);
   const started = startMission(SITE, m.id);
   assert.ok(['RUNNING', 'WAITING_FOR_REVIEW'].includes(started.mission.status));
   const paused = pauseMission(SITE, m.id);
   assert.equal(paused.status, 'PAUSED');
+  assert.throws(() => startMission(SITE, m.id), /paused/i);
+  const resumed = resumeMission(SITE, m.id);
+  assert.ok(['RUNNING', 'WAITING_FOR_REVIEW'].includes(resumed.mission.status));
   const cancelled = cancelMission(SITE, m.id);
   assert.equal(cancelled.status, 'CANCELLED');
 });
@@ -388,6 +392,33 @@ await run('human-review reason surface', () => {
   if (next.task?.id === review.id || next.reason === 'WAITING_FOR_REVIEW') {
     assert.ok(next.reason === 'WAITING_FOR_REVIEW' || next.task);
   }
+});
+
+await run('post-measure soft replan preserves completed', async () => {
+  const { softReplan } = await import('./softReplan.js');
+  const { savePlan } = await import('./store.js');
+  const m = createMission(SITE, { title: 'Post measure', goal: 'CUSTOM' });
+  const first = planMission(SITE, m.id);
+  startMission(SITE, m.id);
+  const plan = getActivePlan(SITE, getMission(SITE, m.id)!)!;
+  if (!plan.tasks[0]) return;
+  savePlan(SITE, {
+    ...plan,
+    tasks: plan.tasks.map((t, i) =>
+      i === 0
+        ? { ...t, status: 'COMPLETED' as const, updatedAt: new Date().toISOString() }
+        : t
+    )
+  });
+  softReplan(SITE, m.id, 'test post-measure', { force: true });
+  const after = getActivePlan(SITE, getMission(SITE, m.id)!)!;
+  assert.ok(after.version >= first.plan.version);
+  assert.ok(after.tasks.some((t) => t.status === 'COMPLETED'));
+});
+
+await run('syncMissionsForJob no-op without matching job', async () => {
+  const { syncMissionsForJob } = await import('./hooks.js');
+  syncMissionsForJob(SITE, 'job-does-not-exist');
 });
 
 console.log('\nAll mission tests passed.');

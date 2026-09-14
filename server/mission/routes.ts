@@ -9,6 +9,7 @@ import {
   executeMissionTask,
   getNextExecutableTask,
   pauseMission,
+  resumeMission,
   startMission,
   syncMissionTaskJobs
 } from './executor.js';
@@ -20,7 +21,7 @@ import {
   getMission,
   listMissions
 } from './store.js';
-import type { MissionGoal } from './types.js';
+import type { MissionGoal, MissionListItem } from './types.js';
 import { MISSION_GOALS } from './types.js';
 
 export const missionRouter = Router();
@@ -31,6 +32,45 @@ function fail(res: any, status: number, code: string, message: string) {
     error: { code, message, retryable: false },
     message
   });
+}
+
+function toListItem(siteId: string, mission: ReturnType<typeof listMissions>[number]): MissionListItem {
+  const plan = getActivePlan(siteId, mission);
+  const tasks = plan?.tasks || [];
+  const completedTasks = tasks.filter((t) => t.status === 'COMPLETED').length;
+  const pendingTasks = tasks.filter((t) => t.status === 'PENDING' || t.status === 'READY').length;
+  const blockedTasks = tasks.filter((t) => t.status === 'BLOCKED').length;
+  const reviewTasks = tasks.filter((t) => t.status === 'WAITING_FOR_REVIEW').length;
+  const runningTasks = tasks.filter((t) => t.status === 'RUNNING').length;
+  const failedTasks = tasks.filter((t) => t.status === 'FAILED').length;
+  const total = tasks.length || 1;
+  const progress = Math.round((completedTasks / total) * 100);
+  let nextTaskTitle: string | undefined;
+  let nextReason: string | undefined;
+  if (['RUNNING', 'READY', 'WAITING_FOR_REVIEW', 'PAUSED'].includes(mission.status)) {
+    try {
+      if (mission.status !== 'PAUSED') {
+        const next = getNextExecutableTask(siteId, mission.id);
+        nextTaskTitle = next.task?.title;
+        nextReason = next.reason;
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+  return {
+    ...mission,
+    progress: tasks.length ? progress : 0,
+    completedTasks,
+    pendingTasks,
+    blockedTasks,
+    reviewTasks,
+    runningTasks,
+    failedTasks,
+    nextTaskTitle,
+    nextReason,
+    taskCount: tasks.length
+  };
 }
 
 missionRouter.post('/:siteId', (req, res) => {
@@ -55,7 +95,8 @@ missionRouter.post('/:siteId', (req, res) => {
 missionRouter.get('/:siteId', (req, res) => {
   const siteId = req.params.siteId;
   if (!db.getSiteById(siteId)) return fail(res, 404, 'site_not_found', 'سایت یافت نشد.');
-  res.json({ success: true, missions: listMissions(siteId) });
+  const missions = listMissions(siteId).map((m) => toListItem(siteId, m));
+  res.json({ success: true, missions });
 });
 
 missionRouter.get('/:siteId/:missionId', (req, res) => {
@@ -116,6 +157,17 @@ missionRouter.post('/:siteId/:missionId/pause', (req, res) => {
     res.json({ success: true, mission: pauseMission(siteId, missionId) });
   } catch (err: any) {
     return fail(res, 400, 'pause_failed', err?.message || 'Pause failed');
+  }
+});
+
+missionRouter.post('/:siteId/:missionId/resume', (req, res) => {
+  const { siteId, missionId } = req.params;
+  if (!db.getSiteById(siteId)) return fail(res, 404, 'site_not_found', 'سایت یافت نشد.');
+  try {
+    const out = resumeMission(siteId, missionId);
+    res.json({ success: true, ...out });
+  } catch (err: any) {
+    return fail(res, 400, 'resume_failed', err?.message || 'Resume failed');
   }
 });
 

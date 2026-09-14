@@ -68,6 +68,20 @@ export interface Mission {
   activePlanId?: string;
 }
 
+/** List row with progress — no fabricated SEO metrics. */
+export interface MissionListItem extends Mission {
+  progress: number;
+  completedTasks: number;
+  pendingTasks: number;
+  blockedTasks: number;
+  reviewTasks: number;
+  runningTasks: number;
+  failedTasks: number;
+  taskCount: number;
+  nextTaskTitle?: string;
+  nextReason?: string;
+}
+
 export interface MissionTask {
   id: string;
   missionId: string;

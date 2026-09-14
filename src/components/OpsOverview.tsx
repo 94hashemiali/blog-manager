@@ -13,15 +13,16 @@ import {
 import { useDecision } from '../hooks/useDecision';
 import NextBestActions from './decision/NextBestActions';
 import DecisionDetail from './decision/DecisionDetail';
-import MissionsPanel from './missions/MissionsPanel';
+import MissionOpsSummary from './missions/MissionOpsSummary';
 import { AlertTriangle, Activity, CheckCircle2, Clock, RefreshCw, Shield, Wifi, WifiOff } from 'lucide-react';
 
 interface Props {
   activeSite: ManagedSite;
-  onOpenView?: (view: 'production' | 'performance' | 'seo' | 'research' | 'posts') => void;
+  onOpenView?: (view: 'production' | 'performance' | 'seo' | 'research' | 'posts' | 'missions') => void;
   onOpenJobs?: () => void;
   onOpenSettings?: () => void;
   onOpenProductionJob?: (jobId: string) => void;
+  onOpenMission?: (missionId: string) => void;
 }
 
 const SEV: Record<string, string> = {
@@ -52,7 +53,8 @@ export default function OpsOverview({
   onOpenView,
   onOpenJobs,
   onOpenSettings,
-  onOpenProductionJob
+  onOpenProductionJob,
+  onOpenMission
 }: Props) {
   const [snapshot, setSnapshot] = useState<OperationsSnapshot | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -274,7 +276,11 @@ export default function OpsOverview({
           </div>
 
           <div className="lg:col-span-3">
-            <MissionsPanel siteId={activeSite.id} />
+            <MissionOpsSummary
+              siteId={activeSite.id}
+              onOpenMissions={() => onOpenView?.('missions')}
+              onOpenMission={(id) => onOpenMission?.(id)}
+            />
           </div>
 
           {decisionDetail && (

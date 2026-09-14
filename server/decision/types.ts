@@ -23,17 +23,32 @@ export type DecisionSignalType =
 
 export type SignalSeverity = 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW' | 'INFO';
 
+export type SignalEntityType =
+  | 'article'
+  | 'research'
+  | 'job'
+  | 'provider'
+  | 'impact'
+  | 'gap'
+  | 'cluster'
+  | 'site';
+
 export interface DecisionSignal {
-  type: DecisionSignalType;
+  id: string;
   siteId: string;
+  type: DecisionSignalType;
+  entityType: SignalEntityType;
   entityId?: string;
   articleId?: string | number;
   severity: SignalSeverity;
-  /** 0–1 strength from evidence quality / magnitude. */
+  /** 0–1 evidence confidence (same scale as strength). */
+  confidence: number;
+  /** 0–1 magnitude / strength from evidence quality. */
   strength: number;
   evidence: string[];
   detectedAt: string;
   source: string;
+  metadata?: Record<string, unknown>;
 }
 
 export type DecisionAction =
@@ -86,6 +101,29 @@ export interface DecisionBlocker {
   resolvesWith?: DecisionAction;
 }
 
+export interface DecisionAlternative {
+  action: DecisionAction;
+  score: number;
+  reason: string;
+}
+
+export interface DecisionExplanation {
+  /** Spec-facing structured explanation. */
+  summary: string;
+  reasons: string[];
+  evidence: string[];
+  blockers: string[];
+  prerequisites: string[];
+  alternatives: DecisionAlternative[];
+  /** Legacy narrative fields kept for Ops UI. */
+  whyThis: string;
+  whyNow: string;
+  whatHappensIfExecuted: string;
+  whatWillNotHappen: string;
+  expectedBenefit: string;
+  whyRejectedHigherRisk?: string;
+}
+
 export interface Decision {
   id: string;
   siteId: string;
@@ -115,20 +153,18 @@ export interface Decision {
   explanation: DecisionExplanation;
 }
 
-export interface DecisionAlternative {
+/** Input context for evaluateDecision(). */
+export interface DecisionEvalContext {
+  siteId: string;
   action: DecisionAction;
-  score: number;
-  reason: string;
-}
-
-export interface DecisionExplanation {
-  whyThis: string;
-  whyNow: string;
-  whatHappensIfExecuted: string;
-  whatWillNotHappen: string;
-  expectedBenefit: string;
-  alternatives: DecisionAlternative[];
-  whyRejectedHigherRisk?: string;
+  signals: DecisionSignal[];
+  title: string;
+  entityId?: string;
+  articleId?: string | number;
+  topic?: string;
+  redirected?: boolean;
+  alternatives?: DecisionAlternative[];
+  now?: string;
 }
 
 export interface ArticleDecisionContext {

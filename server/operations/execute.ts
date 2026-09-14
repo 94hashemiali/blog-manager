@@ -12,6 +12,7 @@ import {
 import type { OperationRecommendation } from './types.js';
 import { isRecommendationStillNeeded } from '../decision/reeval.js';
 import { checkActionFeasibility } from '../decision/actions.js';
+import { collectDecisionSignals, signalsForArticle } from '../decision/signals.js';
 import type { DecisionAction } from '../decision/types.js';
 
 function recTypeToAction(type: string, metadata?: Record<string, unknown>): DecisionAction {
@@ -80,18 +81,29 @@ export function executeRecommendation(
   const signalBlockers = Array.isArray(rec.metadata?.blockers)
     ? (rec.metadata!.blockers as Array<{ code?: string }>)
     : [];
-  // Rebuild minimal signals for feasibility guards (conflict / cannibalization / stale).
-  const signalsFromMeta = signalTypes.map((type) => ({
+  let signalsFromMeta = signalTypes.map((type, i) => ({
+    id: `sig-meta-${rec.id}-${i}`,
     type: type as any,
     siteId,
+    entityType: 'article' as const,
     articleId: rec.articleId,
     entityId: rec.entityId,
     severity: signalBlockers.some((b) => b.code === type) ? ('HIGH' as const) : ('MEDIUM' as const),
+    confidence: 0.7,
     strength: 0.7,
-    evidence: [],
+    evidence: [] as string[],
     detectedAt: rec.updatedAt,
     source: 'recommendation.metadata'
   }));
+  // Live article signals for update path — metadata alone can miss RESEARCH_CONFLICT.
+  if ((rec.type === 'UPDATE_ARTICLE' || rec.type === 'FIX_SEO') && rec.articleId != null) {
+    const live = signalsForArticle(collectDecisionSignals(siteId), rec.articleId);
+    const byId = new Map<string, (typeof signalsFromMeta)[number]>();
+    for (const s of [...signalsFromMeta, ...live]) {
+      byId.set(s.id || `${s.type}:${s.articleId}`, s as any);
+    }
+    signalsFromMeta = Array.from(byId.values()) as typeof signalsFromMeta;
+  }
   const feasibility = checkActionFeasibility(siteId, syncAction, {
     articleId: rec.articleId,
     entityId: rec.entityId,

@@ -20,7 +20,7 @@ import { buildHealthPayload } from './server/providers/status.js';
 import { logger, newRequestId } from './server/logger.js';
 import { jobsRouter, operationsRouter, startOpsRuntime } from './server/jobs/index.js';
 import { operationsDomainRouter } from './server/operations/index.js';
-import { decisionRouter } from './server/decision/index.js';
+import { decisionRouter } from './server/decision/routes.js';
 import {
   syncSiteIntelligence,
   getContentIndex,

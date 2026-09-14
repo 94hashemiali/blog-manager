@@ -91,6 +91,11 @@ export default function DecisionDetail({ decision, recommendation, onClose, onEx
 
         {decision.explanation && (
           <div className="mt-4 space-y-1.5 text-[11px] text-stone-700">
+            {(decision.explanation as any).summary && (
+              <p>
+                <span className="font-bold">Summary:</span> {(decision.explanation as any).summary}
+              </p>
+            )}
             {decision.explanation.whyThis && (
               <p>
                 <span className="font-bold">Why:</span> {decision.explanation.whyThis}

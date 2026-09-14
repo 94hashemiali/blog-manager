@@ -134,5 +134,7 @@ export const ACTION_EFFORT: Record<string, number> = {
   FIX_SEO: 0.5,
   ADD_INTERNAL_LINKS: 0.45,
   UPDATE_ARTICLE: 0.65,
-  CREATE_ARTICLE: 0.85
+  CREATE_ARTICLE: 0.85,
+  REVIEW_CONTENT: 0.4,
+  DEFER: 0.1
 };

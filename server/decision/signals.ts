@@ -6,12 +6,90 @@ import { listJobs as listProductionJobs } from '../content/store.js';
 import { getContentIndex } from '../intelligence/store.js';
 import { buildHealthPayload } from '../providers/status.js';
 import { assessClaimRisk, isAttentionWorthyClaimRisk } from '../operations/claimRisk.js';
-import type { DecisionSignal, DecisionSignalType, SignalSeverity } from './types.js';
+import type {
+  DecisionSignal,
+  DecisionSignalType,
+  SignalEntityType,
+  SignalSeverity
+} from './types.js';
 
-function signal(params: Omit<DecisionSignal, 'strength'> & { strength?: number }): DecisionSignal {
+function entityTypeFor(type: DecisionSignalType): SignalEntityType {
+  switch (type) {
+    case 'CONTENT_DECAY':
+    case 'CONTENT_DECLINE':
+    case 'STALE_CONTENT':
+    case 'SEO_ISSUE':
+    case 'LOW_PERFORMANCE':
+    case 'PERFORMANCE_OPPORTUNITY':
+    case 'PUBLISHING_BLOCKER':
+    case 'HIGH_RISK_CLAIM':
+      return 'article';
+    case 'STALE_RESEARCH':
+    case 'RESEARCH_CONFLICT':
+      return 'research';
+    case 'SOURCE_CHANGED':
+      return 'impact';
+    case 'FAILED_OPERATION':
+      return 'job';
+    case 'PROVIDER_NOT_CONFIGURED':
+    case 'PROVIDER_ERROR':
+      return 'provider';
+    case 'CONTENT_GAP':
+      return 'gap';
+    case 'CANNIBALIZATION_RISK':
+      return 'cluster';
+    default:
+      return 'site';
+  }
+}
+
+function signalId(params: {
+  type: DecisionSignalType;
+  siteId: string;
+  entityId?: string;
+  articleId?: string | number;
+}): string {
+  const raw = [
+    params.siteId,
+    params.type,
+    params.entityId || '-',
+    params.articleId != null ? String(params.articleId) : '-'
+  ].join('::');
+  return `sig-${Buffer.from(raw).toString('base64url').slice(0, 20)}`;
+}
+
+function signal(
+  params: Omit<DecisionSignal, 'id' | 'entityType' | 'strength' | 'confidence'> & {
+    strength?: number;
+    confidence?: number;
+    entityType?: SignalEntityType;
+    id?: string;
+    metadata?: Record<string, unknown>;
+  }
+): DecisionSignal {
+  const strength = Math.max(0, Math.min(1, params.strength ?? severityStrength(params.severity)));
+  const confidence = Math.max(0, Math.min(1, params.confidence ?? strength));
   return {
-    ...params,
-    strength: Math.max(0, Math.min(1, params.strength ?? severityStrength(params.severity)))
+    id:
+      params.id ||
+      signalId({
+        type: params.type,
+        siteId: params.siteId,
+        entityId: params.entityId,
+        articleId: params.articleId
+      }),
+    type: params.type,
+    siteId: params.siteId,
+    entityType: params.entityType || entityTypeFor(params.type),
+    entityId: params.entityId,
+    articleId: params.articleId,
+    severity: params.severity,
+    confidence,
+    strength,
+    evidence: params.evidence,
+    detectedAt: params.detectedAt,
+    source: params.source,
+    metadata: params.metadata
   };
 }
 
@@ -175,7 +253,9 @@ export function collectDecisionSignals(siteId: string): DecisionSignal[] {
           type: 'RESEARCH_CONFLICT',
           siteId,
           entityId: session.id,
-          severity: unresolved.some((c) => c.severity === 'high') ? 'HIGH' : 'MEDIUM',
+          severity: unresolved.some((c) => String(c.severity).toLowerCase() === 'high')
+            ? 'HIGH'
+            : 'MEDIUM',
           evidence: unresolved.slice(0, 3).map((c) => c.difference || c.claim || c.id),
           detectedAt: session.updatedAt || now,
           source: 'research.conflicts'
@@ -267,9 +347,14 @@ export function collectDecisionSignals(siteId: string): DecisionSignal[] {
         entityId: gap.id || gap.kind,
         articleId: gap.articleId,
         severity: gap.kind === 'outdated_article' ? 'MEDIUM' : 'LOW',
-        evidence: [gap.reason || gap.kind].filter(Boolean),
+        evidence: [gap.reason || gap.kind, gap.topic].filter(Boolean),
         detectedAt: index.lastSyncedAt || now,
-        source: 'intelligence.gaps'
+        source: 'intelligence.gaps',
+        metadata: {
+          kind: gap.kind,
+          topic: gap.topic,
+          confidence: gap.confidence
+        }
       })
     );
   }
@@ -350,6 +435,7 @@ export function normalizeSignals(signals: DecisionSignal[]): DecisionSignal[] {
       ...existing,
       severity: higherSeverity(existing.severity, s.severity),
       strength: Math.max(existing.strength, s.strength),
+      confidence: Math.max(existing.confidence, s.confidence),
       evidence: Array.from(new Set([...existing.evidence, ...s.evidence])).slice(0, 8),
       detectedAt: existing.detectedAt > s.detectedAt ? existing.detectedAt : s.detectedAt
     });

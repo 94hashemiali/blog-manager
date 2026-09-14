@@ -13,6 +13,7 @@ import {
 import { useDecision } from '../hooks/useDecision';
 import NextBestActions from './decision/NextBestActions';
 import DecisionDetail from './decision/DecisionDetail';
+import MissionsPanel from './missions/MissionsPanel';
 import { AlertTriangle, Activity, CheckCircle2, Clock, RefreshCw, Shield, Wifi, WifiOff } from 'lucide-react';
 
 interface Props {
@@ -270,6 +271,10 @@ export default function OpsOverview({
                 }
               }}
             />
+          </div>
+
+          <div className="lg:col-span-3">
+            <MissionsPanel siteId={activeSite.id} />
           </div>
 
           {decisionDetail && (

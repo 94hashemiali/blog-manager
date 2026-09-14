@@ -21,6 +21,7 @@ import { logger, newRequestId } from './server/logger.js';
 import { jobsRouter, operationsRouter, startOpsRuntime } from './server/jobs/index.js';
 import { operationsDomainRouter } from './server/operations/index.js';
 import { decisionRouter } from './server/decision/routes.js';
+import { missionRouter } from './server/mission/routes.js';
 import {
   syncSiteIntelligence,
   getContentIndex,
@@ -72,6 +73,7 @@ app.use('/api/operations', operationsDomainRouter);
 app.use('/api/operations', operationsRouter);
 app.use('/api/decisions', decisionRouter);
 app.use('/api/decision', decisionRouter);
+app.use('/api/missions', missionRouter);
 
 const DEFAULT_WP_URL = 'https://madanicamp.com';
 

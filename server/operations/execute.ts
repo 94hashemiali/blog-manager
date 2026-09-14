@@ -45,7 +45,12 @@ export function executeRecommendation(
 } {
   const rec = getRecommendation(siteId, recommendationId);
   if (!rec || rec.siteId !== siteId) throw new Error('Recommendation not found');
-  if (rec.status === 'DISMISSED' || rec.status === 'COMPLETED') {
+  if (
+    rec.status === 'DISMISSED' ||
+    rec.status === 'COMPLETED' ||
+    rec.status === 'EXPIRED' ||
+    rec.status === 'BLOCKED'
+  ) {
     throw new Error('Recommendation is not actionable');
   }
   if (rec.status === 'IN_PROGRESS') {
@@ -61,7 +66,7 @@ export function executeRecommendation(
   const still = isRecommendationStillNeeded(siteId, rec);
   if (!still.stillNeeded) {
     const updated =
-      updateRecommendationStatus(siteId, rec.id, 'COMPLETED', {
+      updateRecommendationStatus(siteId, rec.id, 'EXPIRED', {
         metadata: { expiredReason: still.reason, expiredAt: new Date().toISOString() }
       }) || rec;
     return {
@@ -71,10 +76,27 @@ export function executeRecommendation(
   }
 
   const syncAction = recTypeToAction(rec.type, rec.metadata);
+  const signalTypes = Array.isArray(rec.metadata?.signals) ? (rec.metadata!.signals as string[]) : [];
+  const signalBlockers = Array.isArray(rec.metadata?.blockers)
+    ? (rec.metadata!.blockers as Array<{ code?: string }>)
+    : [];
+  // Rebuild minimal signals for feasibility guards (conflict / cannibalization / stale).
+  const signalsFromMeta = signalTypes.map((type) => ({
+    type: type as any,
+    siteId,
+    articleId: rec.articleId,
+    entityId: rec.entityId,
+    severity: signalBlockers.some((b) => b.code === type) ? ('HIGH' as const) : ('MEDIUM' as const),
+    strength: 0.7,
+    evidence: [],
+    detectedAt: rec.updatedAt,
+    source: 'recommendation.metadata'
+  }));
   const feasibility = checkActionFeasibility(siteId, syncAction, {
     articleId: rec.articleId,
     entityId: rec.entityId,
-    topic: String(rec.metadata?.topic || '')
+    topic: String(rec.metadata?.topic || ''),
+    signals: signalsFromMeta
   });
   if (
     !feasibility.feasible &&
@@ -145,18 +167,24 @@ export function executeRecommendation(
     return { recommendation: updated, opsJobId: job.id, message: 'Research job queued' };
   }
 
-  if (rec.type === 'UPDATE_ARTICLE' || rec.type === 'FIX_SEO' || rec.type === 'REVIEW_SOURCE') {
-    const articleId = rec.articleId ?? rec.metadata?.articleId;
-    if (articleId == null && rec.type !== 'REVIEW_SOURCE') {
-      throw new Error('articleId required for update');
+  if (rec.type === 'REVIEW_SOURCE' || rec.type === 'REVIEW_ARTICLE' || rec.type === 'CONFIGURE_PROVIDER') {
+    const updated = updateRecommendationStatus(siteId, rec.id, 'ACKNOWLEDGED') || rec;
+    if (rec.type === 'CONFIGURE_PROVIDER') {
+      return { recommendation: updated, message: 'Open provider settings to configure' };
     }
-
-    if (rec.type === 'REVIEW_SOURCE' && articleId == null) {
-      const updated = updateRecommendationStatus(siteId, rec.id, 'ACKNOWLEDGED') || rec;
+    if (rec.type === 'REVIEW_SOURCE') {
       return {
         recommendation: updated,
-        message: 'Open impact details — choose an affected article to update'
+        message: 'Review source/evidence conflict — no draft created until conflict is resolved'
       };
+    }
+    return { recommendation: updated, message: 'Marked for human review — no draft created' };
+  }
+
+  if (rec.type === 'UPDATE_ARTICLE' || rec.type === 'FIX_SEO') {
+    const articleId = rec.articleId ?? rec.metadata?.articleId;
+    if (articleId == null) {
+      throw new Error('articleId required for update');
     }
 
     const index = getContentIndex(siteId);
@@ -228,19 +256,6 @@ export function executeRecommendation(
       opsJobId: opsJob.id,
       productionJobId: productionId,
       message: 'Update production job created and queued'
-    };
-  }
-
-  if (rec.type === 'CONFIGURE_PROVIDER') {
-    const updated = updateRecommendationStatus(siteId, rec.id, 'ACKNOWLEDGED') || rec;
-    return { recommendation: updated, message: 'Open provider settings' };
-  }
-
-  if (rec.type === 'REVIEW_ARTICLE') {
-    const updated = updateRecommendationStatus(siteId, rec.id, 'ACKNOWLEDGED') || rec;
-    return {
-      recommendation: updated,
-      message: 'Open article for human review — no draft job created'
     };
   }
 

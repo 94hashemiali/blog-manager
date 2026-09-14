@@ -28,7 +28,8 @@ function fail(res: any, status: number, code: string, message: string) {
 operationsDomainRouter.get('/overview/:siteId', (req, res) => {
   const siteId = req.params.siteId;
   if (!db.getSiteById(siteId)) return fail(res, 404, 'site_not_found', 'سایت یافت نشد.');
-  const snapshot = buildOperationsSnapshot(siteId);
+  // Read-only — use POST /recommendations/:siteId/sync to materialize.
+  const snapshot = buildOperationsSnapshot(siteId, { materializeRecommendations: false });
   res.json({ success: true, snapshot });
 });
 
@@ -41,8 +42,16 @@ operationsDomainRouter.get('/attention/:siteId', (req, res) => {
 operationsDomainRouter.get('/recommendations/:siteId', (req, res) => {
   const siteId = req.params.siteId;
   if (!db.getSiteById(siteId)) return fail(res, 404, 'site_not_found', 'سایت یافت نشد.');
-  syncRecommendationsFromState(siteId);
-  res.json({ success: true, recommendations: listRecommendations(siteId) });
+  // Read-only — no silent materialize on GET.
+  res.json({
+    success: true,
+    recommendations: listRecommendations(siteId, [
+      'OPEN',
+      'ACKNOWLEDGED',
+      'IN_PROGRESS',
+      'BLOCKED'
+    ])
+  });
 });
 
 operationsDomainRouter.post('/recommendations/:siteId/:id/acknowledge', (req, res) => {

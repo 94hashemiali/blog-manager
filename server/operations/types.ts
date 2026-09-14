@@ -40,7 +40,14 @@ export type RecommendationType =
   | 'RETRY_OPERATION'
   | 'RESEARCH_REFRESH';
 
-export type RecommendationStatus = 'OPEN' | 'ACKNOWLEDGED' | 'IN_PROGRESS' | 'COMPLETED' | 'DISMISSED';
+export type RecommendationStatus =
+  | 'OPEN'
+  | 'ACKNOWLEDGED'
+  | 'IN_PROGRESS'
+  | 'COMPLETED'
+  | 'DISMISSED'
+  | 'EXPIRED'
+  | 'BLOCKED';
 
 export interface OperationRecommendation {
   id: string;

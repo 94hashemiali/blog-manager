@@ -28,12 +28,12 @@ function publicJob(job: ReturnType<typeof listOpsJobs>[number]) {
   };
 }
 
-/** Assemble operations snapshot from persisted stores. Optional materialize recommendations. */
+/** Assemble operations snapshot from persisted stores. GET paths should pass materializeRecommendations: false. */
 export function buildOperationsSnapshot(
   siteId: string,
   opts: { materializeRecommendations?: boolean } = {}
 ): OperationsSnapshot {
-  if (opts.materializeRecommendations !== false) {
+  if (opts.materializeRecommendations === true) {
     syncRecommendationsFromState(siteId);
   }
 

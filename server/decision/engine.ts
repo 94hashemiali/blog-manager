@@ -57,7 +57,8 @@ export function runDecisionEngine(
       topic: cand.topic
     });
     let redirected = false;
-    if (!feasibility.feasible && feasibility.redirectTo) {
+    // Prefer prerequisite when primary is not AVAILABLE (incl. REQUIRES_REVIEW redirects).
+    if (feasibility.redirectTo && feasibility.status !== 'AVAILABLE') {
       action = feasibility.redirectTo;
       redirected = true;
       feasibility = checkActionFeasibility(siteId, action, {
@@ -108,6 +109,7 @@ export function runDecisionEngine(
       reasons: cand.signals.flatMap((s) => s.evidence).slice(0, 6),
       signals: cand.signals,
       recommendedAction: action,
+      feasibilityStatus: feasibility.status,
       blockers: feasibility.blockers,
       createdAt: now,
       updatedAt: now,
@@ -116,10 +118,29 @@ export function runDecisionEngine(
         action,
         signals: cand.signals,
         blockers: feasibility.blockers,
-        redirected
+        redirected,
+        feasibilityStatus: feasibility.status,
+        alternatives: []
       })
     };
     decisions.push(decision);
+  }
+
+  // Attach alternatives from sibling decisions (same article or site-level).
+  for (const d of decisions) {
+    d.explanation.alternatives = decisions
+      .filter((x) => x.id !== d.id)
+      .filter(
+        (x) =>
+          (d.articleId != null && x.articleId != null && String(x.articleId) === String(d.articleId)) ||
+          (d.articleId == null && x.articleId == null)
+      )
+      .slice(0, 3)
+      .map((x) => ({
+        action: x.recommendedAction,
+        score: x.score,
+        reason: x.explanation.whyThis
+      }));
   }
 
   // Wire simple prerequisites: UPDATE that redirected from research → link refresh decision.
@@ -137,7 +158,14 @@ export function runDecisionEngine(
   }
 
   decisions.sort((a, b) => b.score - a.score || b.priority.localeCompare(a.priority));
-  const topActions = decisions.slice(0, topN);
+  const topActions = decisions
+    .filter(
+      (d) =>
+        d.recommendedAction !== 'DEFER' &&
+        d.feasibilityStatus !== 'BLOCKED' &&
+        d.feasibilityStatus !== 'INSUFFICIENT_DATA'
+    )
+    .slice(0, topN);
   if (topActions[0]) topActions[0].status = 'SELECTED';
 
   const result: DecisionEngineResult = {
@@ -401,3 +429,27 @@ export function reevaluateDecisionForRecommendation(
 }
 
 export { mapActionToRecommendationType };
+
+/** Canonical next-best-actions API for Ops UI and future AI Content Agent. */
+export function getNextBestActions(
+  siteId: string,
+  opts: { persist?: boolean; topN?: number } = {}
+): {
+  siteId: string;
+  generatedAt: string;
+  nextBest: Decision | null;
+  actions: Decision[];
+  decisionEngineVersion: number;
+} {
+  const result = runDecisionEngine(siteId, {
+    persist: opts.persist === true,
+    topN: opts.topN ?? 5
+  });
+  return {
+    siteId,
+    generatedAt: result.generatedAt,
+    nextBest: result.nextBest,
+    actions: result.topActions,
+    decisionEngineVersion: result.decisionEngineVersion
+  };
+}

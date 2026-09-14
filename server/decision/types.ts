@@ -46,9 +46,17 @@ export type DecisionAction =
   | 'SYNC_CONTENT'
   | 'SYNC_PERFORMANCE'
   | 'REVIEW_ARTICLE'
+  | 'REVIEW_CONTENT'
   | 'RETRY_OPERATION'
   | 'CONFIGURE_PROVIDER'
-  | 'CREATE_ARTICLE';
+  | 'CREATE_ARTICLE'
+  | 'DEFER';
+
+export type FeasibilityStatus =
+  | 'AVAILABLE'
+  | 'BLOCKED'
+  | 'REQUIRES_REVIEW'
+  | 'INSUFFICIENT_DATA';
 
 export type DecisionStatus =
   | 'OPEN'
@@ -96,6 +104,7 @@ export interface Decision {
   reasons: string[];
   signals: DecisionSignal[];
   recommendedAction: DecisionAction;
+  feasibilityStatus: FeasibilityStatus;
   blockers: DecisionBlocker[];
   prerequisiteDecisionId?: string;
   parentDecisionId?: string;
@@ -106,12 +115,20 @@ export interface Decision {
   explanation: DecisionExplanation;
 }
 
+export interface DecisionAlternative {
+  action: DecisionAction;
+  score: number;
+  reason: string;
+}
+
 export interface DecisionExplanation {
   whyThis: string;
   whyNow: string;
   whatHappensIfExecuted: string;
   whatWillNotHappen: string;
   expectedBenefit: string;
+  alternatives: DecisionAlternative[];
+  whyRejectedHigherRisk?: string;
 }
 
 export interface ArticleDecisionContext {

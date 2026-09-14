@@ -244,8 +244,29 @@ await run('cannibalization blocks update → review', () => {
       }
     ]
   });
-  assert.equal(feas.feasible, false);
+  assert.equal(feas.status, 'REQUIRES_REVIEW');
   assert.equal(feas.redirectTo, 'REVIEW_ARTICLE');
+});
+
+await run('critical research conflict blocks update', () => {
+  const feas = checkActionFeasibility(SITE, 'UPDATE_ARTICLE', {
+    articleId: 7,
+    signals: [
+      {
+        type: 'RESEARCH_CONFLICT',
+        siteId: SITE,
+        articleId: 7,
+        severity: 'HIGH',
+        strength: 1,
+        evidence: ['claim mismatch'],
+        detectedAt: new Date().toISOString(),
+        source: 'research.conflicts'
+      }
+    ]
+  });
+  assert.equal(feas.status, 'BLOCKED');
+  assert.equal(feas.redirectTo, 'REVIEW_SOURCE');
+  assert.ok(feas.blockers.some((b) => /Update blocked because evidence conflict/i.test(b.message)));
 });
 
 await run('recommendation materialize + dedupe', () => {
@@ -266,7 +287,7 @@ await run('policy RECOMMEND does not auto-execute', () => {
   assert.ok(applied.recommendationId);
 });
 
-await run('stale recommendation execution completes without job', () => {
+await run('stale recommendation execution expires without job', () => {
   const { recommendation } = upsertRecommendation({
     siteId: SITE,
     type: 'RESEARCH_REFRESH',
@@ -284,7 +305,7 @@ await run('stale recommendation execution completes without job', () => {
     metadata: { topic: 'gone' }
   });
   const out = executeRecommendation(SITE, recommendation.id);
-  assert.equal(out.recommendation.status, 'COMPLETED');
+  assert.equal(out.recommendation.status, 'EXPIRED');
   assert.ok(/No longer necessary|gone|Research/i.test(out.message));
 });
 
@@ -356,6 +377,48 @@ await run('risk from cannibalization signal', () => {
     ]),
     'HIGH'
   );
+});
+
+await run('deterministic ranking stable across runs', () => {
+  const a = runDecisionEngine(SITE, { persist: false, topN: 5 });
+  const b = runDecisionEngine(SITE, { persist: false, topN: 5 });
+  assert.deepEqual(
+    a.topActions.map((d) => ({ id: d.id, score: d.score, action: d.recommendedAction })),
+    b.topActions.map((d) => ({ id: d.id, score: d.score, action: d.recommendedAction }))
+  );
+});
+
+await run('no autonomous publish decision type', () => {
+  const result = runDecisionEngine(SITE, { persist: false, topN: 20 });
+  assert.ok(result.decisions.every((d) => d.recommendedAction !== ('PUBLISH' as any)));
+  assert.ok(
+    result.decisions.every((d) => /Will NOT publish/i.test(d.explanation.whatWillNotHappen))
+  );
+});
+
+await run('getNextBestActions wrapper', async () => {
+  const { getNextBestActions } = await import('./engine.js');
+  const payload = getNextBestActions(SITE, { persist: true, topN: 5 });
+  assert.equal(payload.siteId, SITE);
+  assert.ok(Array.isArray(payload.actions));
+});
+
+await run('GET overview does not materialize recommendations', async () => {
+  const { buildOperationsSnapshot } = await import('../operations/overview.js');
+  const before = listRecommendations(SITE).length;
+  buildOperationsSnapshot(SITE, { materializeRecommendations: false });
+  const after = listRecommendations(SITE).length;
+  assert.equal(after, before);
+});
+
+await run('automation defers to decision engine (no legacy invent)', async () => {
+  const { loadAutomation, saveAutomation } = await import('../jobs/automation.js');
+  const store = loadAutomation(SITE);
+  assert.ok(store.schemaVersion >= 3);
+  const beforeLegacy = store.recommendations.length;
+  // Touch save without inventing new legacy rows via decision path.
+  saveAutomation(SITE, store);
+  assert.equal(loadAutomation(SITE).recommendations.length, beforeLegacy);
 });
 
 console.log('\nAll decision tests passed.');

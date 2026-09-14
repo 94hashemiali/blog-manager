@@ -1,7 +1,6 @@
 import crypto from 'crypto';
 import { db } from '../db.js';
 import type { AutomationRule, DomainEvent, DomainEventType } from './types.js';
-import { enqueueJob } from './enqueue.js';
 import { listDomainEvents } from './events.js';
 import type { AutomationPolicy } from '../decision/types.js';
 import { upsertRecommendation, recommendationDedupeKey } from '../operations/recommendations.js';
@@ -23,6 +22,10 @@ interface AutomationActionLogEntry {
 interface AutomationStore {
   schemaVersion: number;
   rules: AutomationRule[];
+  /**
+   * Legacy text recommendations — read-only compatibility.
+   * New writes stopped; Decision Engine → canonical ops recommendations.
+   */
   recommendations: Array<{
     id: string;
     siteId: string;
@@ -31,7 +34,6 @@ interface AutomationStore {
     createdAt: string;
     status: 'OPEN' | 'DISMISSED';
   }>;
-  /** eventId::ruleId — prevent infinite event→automation→event loops. */
   processedKeys: string[];
   actionLog: AutomationActionLogEntry[];
   settings: {
@@ -45,7 +47,7 @@ interface AutomationStore {
 
 function defaults(): AutomationStore {
   return {
-    schemaVersion: 2,
+    schemaVersion: 3,
     rules: [],
     recommendations: [],
     processedKeys: [],
@@ -102,7 +104,7 @@ export function saveAutomation(siteId: string, store: AutomationStore): Automati
   const next = {
     ...store,
     siteId,
-    schemaVersion: 2,
+    schemaVersion: 3,
     settings: {
       ...store.settings,
       automaticPublishing: false
@@ -140,22 +142,6 @@ export function upsertAutomationRule(rule: Omit<AutomationRule, 'id'> & { id?: s
   return row;
 }
 
-function recordLegacyRecommendation(
-  store: AutomationStore,
-  event: DomainEvent,
-  text: string
-): void {
-  store.recommendations.unshift({
-    id: `rec-${crypto.randomBytes(3).toString('hex')}`,
-    siteId: event.siteId,
-    text,
-    triggerEventId: event.eventId,
-    createdAt: new Date().toISOString(),
-    status: 'OPEN'
-  });
-  store.recommendations = store.recommendations.slice(0, 100);
-}
-
 function markProcessed(
   store: AutomationStore,
   event: DomainEvent,
@@ -179,9 +165,10 @@ function markProcessed(
 }
 
 /**
- * Evaluate rules against a domain event.
- * May create research/update/performance jobs or recommendations.
- * NEVER creates PUBLISH jobs.
+ * Automation = trigger only.
+ * Event → Decision Engine (WHAT) → policy (WHETHER).
+ * Rules may still enqueue safe sync jobs when policy allows.
+ * NEVER invents prioritization or publishes.
  */
 export function applyAutomationForEvent(event: DomainEvent): Array<{ action: string; jobId?: string }> {
   const store = loadAutomation(event.siteId);
@@ -207,7 +194,7 @@ export function applyAutomationForEvent(event: DomainEvent): Array<{ action: str
         type: 'RETRY_OPERATION',
         priority: 'MEDIUM',
         title: 'Automation rate limited',
-        explanation: `Max ${maxPerHour} automated actions/hour exceeded. Event ${event.type} deferred for rule ${rule.id}.`,
+        explanation: `Max ${maxPerHour} automated actions/hour exceeded. Event ${event.type} deferred.`,
         entityId: event.eventId,
         triggerEventId: event.eventId,
         suggestedAction: 'VIEW',
@@ -219,176 +206,19 @@ export function applyAutomationForEvent(event: DomainEvent): Array<{ action: str
         }),
         metadata: { automationRateLimited: true, ruleId: rule.id, eventType: event.type }
       });
-      // Do NOT markProcessed — event/rule must retry after rate window.
       results.push({ action: 'AUTOMATION_RATE_LIMITED' });
       dirty = true;
       break;
     }
 
-    const explain = `Triggered by: ${event.type}. Rule: ${rule.label}.`;
-
-    if (rule.action === 'RECORD_RECOMMENDATION' || rule.action === 'CREATE_REVIEW_TASK') {
-      recordLegacyRecommendation(store, event, rule.label || `${event.type} needs attention`);
-      upsertRecommendation({
-        siteId: event.siteId,
-        type: 'REVIEW_SOURCE',
-        priority: 'MEDIUM',
-        title: rule.label || `${event.type} needs attention`,
-        explanation: explain,
-        entityId: event.entityId,
-        triggerEventId: event.eventId,
-        suggestedAction: 'REVIEW',
-        dedupeKey: recommendationDedupeKey({
-          siteId: event.siteId,
-          type: 'REVIEW_SOURCE',
-          entityId: event.entityId || event.eventId,
-          reasonCategory: `AUTO_${event.type}`
-        }),
-        metadata: { ruleId: rule.id, automationExplain: explain }
-      });
-      markProcessed(store, event, rule, rule.action);
-      results.push({ action: rule.action });
-      dirty = true;
-      continue;
-    }
-
-    if (rule.action === 'CREATE_PERFORMANCE_SYNC') {
-      if (policy === 'APPROVAL_REQUIRED') {
-        upsertRecommendation({
-          siteId: event.siteId,
-          type: 'SYNC_CONTENT',
-          priority: 'LOW',
-          title: 'Approve performance sync',
-          explanation: explain,
-          triggerEventId: event.eventId,
-          suggestedAction: 'SYNC',
-          dedupeKey: recommendationDedupeKey({
-            siteId: event.siteId,
-            type: 'SYNC_CONTENT',
-            entityId: event.eventId,
-            reasonCategory: 'AUTO_PERF'
-          }),
-          metadata: { ruleId: rule.id, automationExplain: explain, opsJobType: 'PERFORMANCE_SYNC' }
-        });
-        markProcessed(store, event, rule, 'RECORD_RECOMMENDATION');
-        results.push({ action: 'RECORD_RECOMMENDATION' });
-        dirty = true;
-        continue;
-      }
-      const { job } = enqueueJob({
-        siteId: event.siteId,
-        type: 'PERFORMANCE_SYNC',
-        priority: 'LOW',
-        triggerReason: `${rule.label} | ${explain}`,
-        triggerEventId: event.eventId,
-        idempotencyKey: `auto-perf-${event.siteId}-${event.eventId}`
-      });
-      markProcessed(store, event, rule, rule.action, job.id);
-      results.push({ action: rule.action, jobId: job.id });
-      dirty = true;
-      continue;
-    }
-
-    if (rule.action === 'CREATE_RESEARCH_JOB') {
-      const topic = String(event.metadata?.topic || '');
-      const allowAutoResearch = policy === 'AUTO_RESEARCH' || policy === 'AUTO_UPDATE_DRAFT';
-      if (!topic || !allowAutoResearch) {
-        recordLegacyRecommendation(store, event, `Research refresh recommended (${event.type})`);
-        upsertRecommendation({
-          siteId: event.siteId,
-          type: 'RESEARCH_REFRESH',
-          priority: 'MEDIUM',
-          title: `Research recommended: ${topic || event.type}`,
-          explanation: explain,
-          entityId: event.entityId,
-          triggerEventId: event.eventId,
-          suggestedAction: 'RESEARCH',
-          dedupeKey: recommendationDedupeKey({
-            siteId: event.siteId,
-            type: 'RESEARCH_REFRESH',
-            entityId: event.entityId || topic || event.eventId,
-            reasonCategory: 'AUTO_RESEARCH'
-          }),
-          metadata: { topic, ruleId: rule.id, automationExplain: explain }
-        });
-        markProcessed(store, event, rule, 'RECORD_RECOMMENDATION');
-        results.push({ action: 'RECORD_RECOMMENDATION' });
-        dirty = true;
-        continue;
-      }
-      const { job } = enqueueJob({
-        siteId: event.siteId,
-        type: 'RESEARCH',
-        payload: { topic },
-        triggerReason: `${rule.label} | ${explain}`,
-        triggerEventId: event.eventId,
-        entityKey: `research:${topic}`,
-        idempotencyKey: `auto-research-${event.siteId}-${event.eventId}-${topic}`
-      });
-      markProcessed(store, event, rule, rule.action, job.id);
-      results.push({ action: rule.action, jobId: job.id });
-      dirty = true;
-      continue;
-    }
-
-    if (rule.action === 'CREATE_UPDATE_JOB') {
-      const articleId = event.metadata?.articleId;
-      const allowDraft = policy === 'AUTO_UPDATE_DRAFT' && articleId != null;
-      if (!allowDraft) {
-        recordLegacyRecommendation(store, event, `Update recommended: ${rule.label} (${event.type})`);
-        upsertRecommendation({
-          siteId: event.siteId,
-          type: 'UPDATE_ARTICLE',
-          priority: 'HIGH',
-          title: `Update recommended: ${rule.label}`,
-          explanation: explain,
-          entityId: articleId != null ? String(articleId) : event.entityId,
-          articleId: articleId as string | number | undefined,
-          triggerEventId: event.eventId,
-          suggestedAction: 'UPDATE',
-          dedupeKey: recommendationDedupeKey({
-            siteId: event.siteId,
-            type: 'UPDATE_ARTICLE',
-            entityId: articleId != null ? String(articleId) : event.entityId || event.eventId,
-            reasonCategory: 'AUTO_UPDATE'
-          }),
-          metadata: { ruleId: rule.id, automationExplain: explain, articleId }
-        });
-        markProcessed(store, event, rule, 'RECORD_RECOMMENDATION');
-        results.push({ action: 'RECORD_RECOMMENDATION' });
-        dirty = true;
-        continue;
-      }
-      // Explicit article + AUTO_UPDATE_DRAFT — still never publish.
-      // Defer to recommendation execute path for production job creation (safer).
-      upsertRecommendation({
-        siteId: event.siteId,
-        type: 'UPDATE_ARTICLE',
-        priority: 'HIGH',
-        title: `Auto-draft update allowed: article ${articleId}`,
-        explanation: `${explain} Policy AUTO_UPDATE_DRAFT — execute recommendation to create draft job.`,
-        entityId: String(articleId),
-        articleId: articleId as string | number,
-        triggerEventId: event.eventId,
-        suggestedAction: 'UPDATE',
-        dedupeKey: recommendationDedupeKey({
-          siteId: event.siteId,
-          type: 'UPDATE_ARTICLE',
-          entityId: String(articleId),
-          reasonCategory: 'AUTO_UPDATE_DRAFT'
-        }),
-        metadata: { ruleId: rule.id, automationExplain: explain, autoDraft: true }
-      });
-      markProcessed(store, event, rule, 'RECORD_RECOMMENDATION');
-      results.push({ action: 'RECORD_RECOMMENDATION' });
-      dirty = true;
-    }
+    // Rules never invent jobs/recommendations — Decision Engine owns WHAT.
+    markProcessed(store, event, rule, 'DEFER_TO_DECISION_ENGINE');
+    results.push({ action: 'DEFER_TO_DECISION_ENGINE' });
+    dirty = true;
   }
 
   if (dirty) saveAutomation(event.siteId, store);
 
-  // Decision Engine chooses WHAT; policy chooses WHETHER.
-  // Process once per event (loop protection) via synthetic processed key.
   const decisionKey = processedKey(event.eventId, '__decision_engine__');
   if (!store.processedKeys.includes(decisionKey)) {
     try {
@@ -442,6 +272,7 @@ export function applyAutomationForEvent(event: DomainEvent): Array<{ action: str
   return results;
 }
 
+/** @deprecated Legacy text recs — prefer canonical ops recommendations. */
 export function listAutomationRecommendations(siteId: string) {
   return loadAutomation(siteId).recommendations.filter((r) => r.status === 'OPEN');
 }

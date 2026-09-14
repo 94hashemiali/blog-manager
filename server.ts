@@ -71,6 +71,7 @@ app.use('/api/jobs', jobsRouter);
 app.use('/api/operations', operationsDomainRouter);
 app.use('/api/operations', operationsRouter);
 app.use('/api/decisions', decisionRouter);
+app.use('/api/decision', decisionRouter);
 
 const DEFAULT_WP_URL = 'https://madanicamp.com';
 

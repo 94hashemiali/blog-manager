@@ -182,16 +182,29 @@ function materializeFromDecisions(siteId: string, decisions: Decision[]): string
       }),
       metadata: {
         decisionId: decision.id,
+        decisionVersion: decision.decisionEngineVersion,
         decisionEngineVersion: decision.decisionEngineVersion,
         score: decision.score,
+        confidence: decision.confidence,
+        effort: decision.effort,
         scoreBreakdown: decision.scoreBreakdown,
         signals: decision.signals.map((s) => s.type),
+        evidence: decision.reasons,
         blockers: decision.blockers,
         expectedImpact: decision.expectedImpact,
+        selectedAction: decision.recommendedAction,
+        feasibilityStatus: decision.feasibilityStatus,
+        lastEvaluatedAt: decision.updatedAt,
+        evaluationVersion: decision.decisionEngineVersion,
         opsJobType:
           decision.recommendedAction === 'SYNC_PERFORMANCE' ? 'PERFORMANCE_SYNC' : undefined
       }
     });
+    if (decision.feasibilityStatus === 'BLOCKED') {
+      updateRecommendationStatus(siteId, recommendation.id, 'BLOCKED', {
+        metadata: { blockers: decision.blockers }
+      });
+    }
     updateDecisionStatus(siteId, decision.id, 'SELECTED', { recommendationId: recommendation.id });
     ids.push(recommendation.id);
   }
@@ -210,7 +223,7 @@ export function syncRecommendationsFromState(siteId: string): OperationRecommend
     if (rec.metadata?.automationRateLimited) continue;
     const evalResult = isRecommendationStillNeeded(siteId, rec);
     if (!evalResult.stillNeeded) {
-      updateRecommendationStatus(siteId, rec.id, 'COMPLETED', {
+      updateRecommendationStatus(siteId, rec.id, 'EXPIRED', {
         metadata: {
           expiredReason: evalResult.reason,
           expiredAt: new Date().toISOString()

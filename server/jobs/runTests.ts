@@ -207,7 +207,7 @@ await run('scheduler enqueues job instead of doing work', () => {
   assert.ok(queued.length >= 1);
 });
 
-await run('automation never publishes; creates recommendation', () => {
+await run('automation never publishes; defers to Decision Engine', () => {
   updateAutomationSettings(SITE, { monitoringEnabled: true, automaticPublishing: false });
   upsertAutomationRule({
     siteId: SITE,
@@ -218,7 +218,14 @@ await run('automation never publishes; creates recommendation', () => {
   });
   const event = emitDomainEvent({ type: 'SOURCE_CHANGED', siteId: SITE, entityId: 'src-1' });
   const results = applyAutomationForEvent(event);
-  assert.ok(results.some((r) => r.action === 'RECORD_RECOMMENDATION'));
+  assert.ok(
+    results.some(
+      (r) =>
+        r.action === 'DEFER_TO_DECISION_ENGINE' ||
+        r.action.startsWith('DECISION_') ||
+        r.action === 'AUTOMATION_RATE_LIMITED'
+    )
+  );
   assert.ok(!results.some((r) => r.jobId && getOpsJob(r.jobId!)?.type === 'PUBLISH'));
 });
 

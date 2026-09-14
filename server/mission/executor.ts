@@ -16,6 +16,8 @@ import {
   upsertMission
 } from './store.js';
 import { reevaluateMissionAfterTaskChange } from './softReplan.js';
+import { captureBaseline } from './measurement.js';
+import { evaluateAndPersistMissionOutcome } from './outcome.js';
 import {
   MAX_CONCURRENT_MISSION_TASKS,
   type Mission,
@@ -220,6 +222,12 @@ export function startMission(siteId: string, missionId: string): {
   };
   upsertMission(siteId, mission);
   emit('MISSION_STARTED', siteId, missionId);
+  try {
+    captureBaseline(siteId, missionId);
+  } catch (err) {
+    console.warn('baseline capture failed', err);
+  }
+  mission = getMission(siteId, missionId) || mission;
 
   const next = getNextExecutableTask(siteId, missionId);
   if (next.reason === 'WAITING_FOR_REVIEW') {
@@ -232,7 +240,7 @@ export function startMission(siteId: string, missionId: string): {
     emit('MISSION_WAITING_REVIEW', siteId, missionId, { taskId: next.task?.id });
   }
 
-  return { mission, next };
+  return { mission: getMission(siteId, missionId) || mission, next };
 }
 
 export function pauseMission(siteId: string, missionId: string): Mission {
@@ -312,7 +320,12 @@ export function cancelMission(siteId: string, missionId: string): Mission {
   };
   upsertMission(siteId, updated);
   emit('MISSION_CANCELLED', siteId, missionId);
-  return updated;
+  try {
+    evaluateAndPersistMissionOutcome(siteId, missionId);
+  } catch (err) {
+    console.warn('cancel outcome evaluate failed', err);
+  }
+  return getMission(siteId, missionId) || updated;
 }
 
 /**
@@ -650,7 +663,12 @@ function maybeCompleteOrAdvance(siteId: string, missionId: string): Mission {
     };
     upsertMission(siteId, mission);
     emit(anyFailed ? 'MISSION_TASK_FAILED' : 'MISSION_COMPLETED', siteId, missionId);
-    return mission;
+    try {
+      evaluateAndPersistMissionOutcome(siteId, missionId);
+    } catch (err) {
+      console.warn('outcome evaluate failed', err);
+    }
+    return getMission(siteId, missionId) || mission;
   }
 
   if (mission.status !== 'RUNNING' && mission.status !== 'PAUSED') {

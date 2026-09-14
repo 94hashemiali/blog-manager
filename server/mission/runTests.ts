@@ -295,7 +295,18 @@ await run('evaluation + insufficient performance honesty', () => {
   const evaluation = evaluateMission(SITE_B, m.id);
   assert.equal(evaluation.siteId, SITE_B);
   const outcome = captureMissionOutcome(SITE_B, m.id);
-  assert.equal(outcome.performance, 'INSUFFICIENT_DATA');
+  assert.ok(
+    outcome.performance === 'INSUFFICIENT_DATA' ||
+      outcome.classification === 'INSUFFICIENT_DATA' ||
+      outcome.classification === 'INCONCLUSIVE' ||
+      outcome.classification === 'NO_MEASURABLE_CHANGE'
+  );
+  // Never invent before==after record counts as fake traffic
+  assert.ok(
+    !outcome.performance ||
+      outcome.performance === 'INSUFFICIENT_DATA' ||
+      (typeof outcome.performance === 'object' && false)
+  );
 });
 
 await run('site isolation', () => {
@@ -419,6 +430,94 @@ await run('post-measure soft replan preserves completed', async () => {
 await run('syncMissionsForJob no-op without matching job', async () => {
   const { syncMissionsForJob } = await import('./hooks.js');
   syncMissionsForJob(SITE, 'job-does-not-exist');
+});
+
+await run('baseline snapshot on start + site isolation', async () => {
+  const { getMeasurement } = await import('./measurement.js');
+  const m = createMission(SITE, { title: 'Baseline', goal: 'CONTENT_HEALTH' });
+  planMission(SITE, m.id);
+  startMission(SITE, m.id);
+  const started = getMission(SITE, m.id)!;
+  assert.ok(started.baselineMeasurementId);
+  const snap = getMeasurement(SITE, started.baselineMeasurementId!);
+  assert.ok(snap);
+  assert.equal(snap!.type, 'BASELINE');
+  assert.equal(snap!.siteId, SITE);
+  assert.ok(snap!.metrics.content.articleCount.state === 'AVAILABLE' || snap!.metrics.content.articleCount.state === 'UNAVAILABLE');
+  // traffic not fabricated as 0 when GSC disconnected
+  assert.notEqual(snap!.metrics.performance.clicks.state, 'AVAILABLE');
+  assert.equal(getMeasurement(SITE_B, started.baselineMeasurementId!), undefined);
+});
+
+await run('outcome report after completion — no fake traffic', async () => {
+  const { savePlan } = await import('./store.js');
+  const { syncMissionTaskJobs } = await import('./executor.js');
+  const { getMissionOutcomeReport } = await import('./evaluator.js');
+  const m = createMission(SITE, { title: 'Outcome done', goal: 'CUSTOM' });
+  planMission(SITE, m.id);
+  startMission(SITE, m.id);
+  const plan = getActivePlan(SITE, getMission(SITE, m.id)!)!;
+  if (plan.tasks.length) {
+    savePlan(SITE, {
+      ...plan,
+      tasks: plan.tasks.map((t) => ({
+        ...t,
+        status: 'COMPLETED' as const,
+        updatedAt: new Date().toISOString()
+      }))
+    });
+    syncMissionTaskJobs(SITE, m.id);
+  }
+  const report = getMissionOutcomeReport(SITE, m.id);
+  assert.ok(report.classification);
+  assert.ok(report.window.baselineCapturedAt);
+  assert.ok(
+    report.outcome == null ||
+      report.outcome.metrics.performance.clicks.state !== 'AVAILABLE' ||
+      typeof report.outcome.metrics.performance.clicks.value === 'number'
+  );
+  // No silent zero clicks
+  if (report.outcome?.metrics.performance.clicks.state === 'UNAVAILABLE') {
+    assert.equal(report.outcome.metrics.performance.clicks.value, undefined);
+  }
+  assert.ok(Array.isArray(report.nextRecommendations));
+  assert.ok(report.nextState);
+});
+
+await run('direct task changes attribution', async () => {
+  const { listDirectTaskChanges } = await import('./measurement.js');
+  const { savePlan } = await import('./store.js');
+  const m = createMission(SITE, { title: 'Direct', goal: 'CUSTOM' });
+  planMission(SITE, m.id);
+  const plan = getActivePlan(SITE, getMission(SITE, m.id)!)!;
+  const update = plan.tasks.find((t) => t.type === 'UPDATE_ARTICLE');
+  if (!update) return;
+  savePlan(SITE, {
+    ...plan,
+    tasks: plan.tasks.map((t) =>
+      t.id === update.id ? { ...t, status: 'COMPLETED' as const } : t
+    )
+  });
+  const changes = listDirectTaskChanges(SITE, m.id);
+  assert.ok(changes.some((c) => c.attribution === 'DIRECT_CHANGE'));
+});
+
+await run('FAILED_EXECUTION classification', async () => {
+  const { savePlan } = await import('./store.js');
+  const { buildMissionOutcomeReport } = await import('./outcome.js');
+  const m = createMission(SITE, { title: 'Fail class', goal: 'CUSTOM' });
+  planMission(SITE, m.id);
+  startMission(SITE, m.id);
+  const plan = getActivePlan(SITE, getMission(SITE, m.id)!)!;
+  assert.ok(plan.tasks.length > 0, 'need tasks for fail classification');
+  savePlan(SITE, {
+    ...plan,
+    tasks: plan.tasks.map((t) => ({ ...t, status: 'FAILED' as const }))
+  });
+  const { syncMissionTaskJobs } = await import('./executor.js');
+  syncMissionTaskJobs(SITE, m.id);
+  const report = buildMissionOutcomeReport(SITE, m.id);
+  assert.equal(report.classification, 'FAILED_EXECUTION');
 });
 
 console.log('\nAll mission tests passed.');

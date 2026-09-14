@@ -1,6 +1,7 @@
 import type {
   Mission,
   MissionEvaluation,
+  MissionOutcomeReport,
   MissionPlan,
   MissionTask,
   NextTaskReason,
@@ -10,12 +11,14 @@ import MissionTaskGraph from './MissionTaskGraph';
 import MissionProgress from './MissionProgress';
 import MissionPlanDiff from './MissionPlanDiff';
 import MissionTaskDetail from './MissionTaskDetail';
+import MissionOutcome from './MissionOutcome';
 
 interface Props {
   mission: Mission;
   plan?: MissionPlan | null;
   order?: string[];
   evaluation?: MissionEvaluation | null;
+  report?: MissionOutcomeReport | null;
   diff?: PlanDiff | null;
   nextTask?: MissionTask | null;
   nextReason?: NextTaskReason;
@@ -63,6 +66,7 @@ export default function MissionDetail({
   plan,
   order,
   evaluation,
+  report,
   diff,
   nextTask,
   nextReason,
@@ -251,6 +255,8 @@ export default function MissionDetail({
           />
         </div>
       </div>
+
+      <MissionOutcome report={report || null} />
 
       <MissionPlanDiff diff={diff || null} />
     </div>

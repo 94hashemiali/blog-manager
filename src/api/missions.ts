@@ -47,6 +47,15 @@ export type MissionTaskStatus =
 
 export type TaskPriority = 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW' | 'INFO';
 
+export type OutcomeClassification =
+  | 'SUCCESS'
+  | 'PARTIAL_SUCCESS'
+  | 'NO_MEASURABLE_CHANGE'
+  | 'REGRESSION'
+  | 'INCONCLUSIVE'
+  | 'FAILED_EXECUTION'
+  | 'INSUFFICIENT_DATA';
+
 export interface Mission {
   id: string;
   siteId: string;
@@ -75,6 +84,7 @@ export interface MissionListItem extends Mission {
   taskCount: number;
   nextTaskTitle?: string;
   nextReason?: string;
+  outcomeClassification?: OutcomeClassification;
 }
 
 export interface MissionTask {
@@ -172,6 +182,74 @@ export interface MissionEvaluation {
   nextReason?: NextTaskReason;
 }
 
+export type MetricAvailability = 'AVAILABLE' | 'UNAVAILABLE' | 'DEMO_DATA' | 'UNKNOWN';
+
+export interface MetricValue {
+  state: MetricAvailability;
+  value?: number;
+  source?: string;
+  detail?: string;
+}
+
+export type MissionNextState =
+  | 'NO_FURTHER_ACTION'
+  | 'CONTINUE_EXISTING_MISSION'
+  | 'REPLAN_MISSION'
+  | 'NEW_RECOMMENDATIONS'
+  | 'INSUFFICIENT_DATA';
+
+export interface MissionOutcomeReport {
+  missionId: string;
+  siteId: string;
+  goal: string;
+  missionStatus: string;
+  classification: OutcomeClassification;
+  executionConfidence: 'HIGH' | 'MEDIUM' | 'LOW';
+  expectedImpactSummary: string[];
+  execution: {
+    completedTasks: number;
+    failedTasks: number;
+    skippedTasks: number;
+    blockedTasks: number;
+    reviewTasks: number;
+    pendingTasks: number;
+    jobsExecuted: number;
+    decisionsEvaluated: number;
+  };
+  baseline?: {
+    id: string;
+    capturedAt: string;
+    metrics: any;
+  } | null;
+  outcome?: {
+    id: string;
+    capturedAt: string;
+    metrics: any;
+  } | null;
+  window: { baselineCapturedAt?: string; outcomeCapturedAt?: string };
+  changes: Array<{
+    key: string;
+    label: string;
+    attribution: string;
+    delta?: number;
+    evidence: string;
+  }>;
+  unchanged: string[];
+  unavailable: string[];
+  evidence: Array<{ claim: string; source: string }>;
+  unknowns: string[];
+  matchedExpectations: 'YES' | 'PARTIAL' | 'NO' | 'UNKNOWN';
+  nextState: MissionNextState;
+  nextRecommendations: Array<{
+    decisionId: string;
+    action: string;
+    title: string;
+    priority: string;
+  }>;
+  replanAvailable: boolean;
+  evaluatedAt: string;
+}
+
 export interface MissionOutcome {
   missionId: string;
   siteId: string;
@@ -184,6 +262,9 @@ export interface MissionOutcome {
   startedAt?: string;
   completedAt?: string;
   performance?: 'INSUFFICIENT_DATA' | { beforeRecords: number; afterRecords: number };
+  classification?: OutcomeClassification;
+  nextState?: MissionNextState;
+  report?: MissionOutcomeReport;
 }
 
 async function parse(res: Response) {
@@ -300,8 +381,15 @@ export async function getNextMissionTask(
 export async function getMissionEvaluation(
   siteId: string,
   missionId: string
-): Promise<{ evaluation: MissionEvaluation; outcome: MissionOutcome }> {
+): Promise<{ evaluation: MissionEvaluation; outcome: MissionOutcome; report?: MissionOutcomeReport }> {
   return parse(await fetch(`${base(siteId)}/${encodeURIComponent(missionId)}/evaluation`));
+}
+
+export async function getMissionOutcomeReport(
+  siteId: string,
+  missionId: string
+): Promise<{ report: MissionOutcomeReport }> {
+  return parse(await fetch(`${base(siteId)}/${encodeURIComponent(missionId)}/outcome`));
 }
 
 export async function getMissionDiff(

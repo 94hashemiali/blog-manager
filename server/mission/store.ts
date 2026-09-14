@@ -16,7 +16,8 @@ function empty(siteId: string): MissionStore {
     missions: [],
     plans: [],
     diffs: [],
-    outcomes: []
+    outcomes: [],
+    measurements: []
   };
 }
 
@@ -31,7 +32,12 @@ export function loadMissionStore(siteId: string): MissionStore {
     ),
     plans: (Array.isArray(raw.plans) ? raw.plans : []).filter((p: MissionPlan) => p.siteId === siteId),
     diffs: Array.isArray(raw.diffs) ? raw.diffs.slice(0, 50) : [],
-    outcomes: Array.isArray(raw.outcomes) ? raw.outcomes.slice(0, 50) : []
+    outcomes: (Array.isArray(raw.outcomes) ? raw.outcomes : [])
+      .filter((o: any) => !o.siteId || o.siteId === siteId)
+      .slice(0, 50),
+    measurements: (Array.isArray(raw.measurements) ? raw.measurements : []).filter(
+      (m: any) => m.siteId === siteId
+    )
   };
 }
 
@@ -43,7 +49,8 @@ export function saveMissionStore(siteId: string, store: MissionStore): MissionSt
     missions: store.missions.filter((m) => m.siteId === siteId).slice(0, 40),
     plans: store.plans.filter((p) => p.siteId === siteId).slice(0, 80),
     diffs: store.diffs.slice(0, 50),
-    outcomes: store.outcomes.slice(0, 50)
+    outcomes: (store.outcomes || []).filter((o) => !o.siteId || o.siteId === siteId).slice(0, 50),
+    measurements: (store.measurements || []).filter((m) => m.siteId === siteId).slice(0, 80)
   };
   db.saveMissionStore(siteId, next);
   return next;

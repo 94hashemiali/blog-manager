@@ -1,6 +1,6 @@
 /** Mission Plan layer — deterministic orchestration over Decision Engine. */
 
-export const MISSION_SCHEMA_VERSION = 1;
+export const MISSION_SCHEMA_VERSION = 2;
 export const MAX_CONCURRENT_MISSION_TASKS = 1;
 
 export type MissionGoal =
@@ -66,6 +66,10 @@ export interface Mission {
   targetDate?: string;
   /** Active plan snapshot id. */
   activePlanId?: string;
+  baselineMeasurementId?: string;
+  outcomeMeasurementId?: string;
+  outcomeClassification?: import('./measurementTypes.js').OutcomeClassification;
+  nextState?: import('./measurementTypes.js').MissionNextState;
 }
 
 /** List row with progress — no fabricated SEO metrics. */
@@ -80,6 +84,7 @@ export interface MissionListItem extends Mission {
   taskCount: number;
   nextTaskTitle?: string;
   nextReason?: string;
+  outcomeClassification?: import('./measurementTypes.js').OutcomeClassification;
 }
 
 export interface MissionTask {
@@ -161,19 +166,21 @@ export const MISSION_GOALS: MissionGoal[] = [
   'CUSTOM'
 ];
 
-export interface MissionOutcome {
-  missionId: string;
-  siteId: string;
-  completedTasks: number;
-  failedTasks: number;
-  blockedTasks: number;
-  reviewTasks: number;
-  decisionsEvaluated: number;
-  jobsExecuted: number;
-  startedAt?: string;
-  completedAt?: string;
-  performance?: 'INSUFFICIENT_DATA' | { beforeRecords: number; afterRecords: number };
-}
+export type {
+  MetricAvailability,
+  MetricValue,
+  MeasurementKind,
+  MissionMeasurementSnapshot,
+  OutcomeClassification,
+  ChangeAttribution,
+  AttributedChange,
+  MissionNextState,
+  MissionOutcomeReport,
+  MissionOutcomeLegacy
+} from './measurementTypes.js';
+
+/** @deprecated Prefer MissionOutcomeReport — kept for store + API compat. */
+export type MissionOutcome = import('./measurementTypes.js').MissionOutcomeLegacy;
 
 export type NextTaskReason =
   | 'WAITING_FOR_REVIEW'
@@ -215,6 +222,7 @@ export interface MissionStore {
   plans: MissionPlan[];
   diffs: PlanDiff[];
   outcomes: MissionOutcome[];
+  measurements: import('./measurementTypes.js').MissionMeasurementSnapshot[];
 }
 
 /** Goal → allowed decision actions (filter only — no second scoring). */

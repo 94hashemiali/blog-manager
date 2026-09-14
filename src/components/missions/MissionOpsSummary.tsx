@@ -72,7 +72,9 @@ export default function MissionOpsSummary({ siteId, onOpenMissions, onOpenMissio
           <p className="mt-1 text-[11px] text-stone-500">
             {highlight.nextTaskTitle
               ? `Next: ${highlight.nextTaskTitle}`
-              : highlight.nextReason || 'بدون next task'}
+              : highlight.outcomeClassification
+                ? `Outcome: ${highlight.outcomeClassification}`
+                : highlight.nextReason || 'بدون next task'}
           </p>
         </button>
       ) : (

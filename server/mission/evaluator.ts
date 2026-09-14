@@ -1,7 +1,9 @@
-import { loadPerformanceStore } from '../performance/store.js';
 import { getNextExecutableTask, syncMissionTaskJobs } from './executor.js';
-import { getActivePlan, getMission, getOutcome, saveOutcome } from './store.js';
+import { getActivePlan, getMission, getOutcome } from './store.js';
+import { getMeasurement } from './measurement.js';
+import { buildMissionOutcomeReport } from './outcome.js';
 import type { MissionEvaluation, MissionOutcome } from './types.js';
+import type { MissionOutcomeReport } from './measurementTypes.js';
 
 export function evaluateMission(siteId: string, missionId: string): MissionEvaluation {
   syncMissionTaskJobs(siteId, missionId);
@@ -39,34 +41,60 @@ export function evaluateMission(siteId: string, missionId: string): MissionEvalu
   };
 }
 
+/**
+ * Read-only outcome view. Persistence happens only on terminal executor hooks.
+ * Never invent before/after record counts.
+ */
 export function captureMissionOutcome(siteId: string, missionId: string): MissionOutcome {
   const mission = getMission(siteId, missionId);
   if (!mission || mission.siteId !== siteId) throw new Error('Mission not found');
-  const plan = getActivePlan(siteId, mission);
-  const tasks = plan?.tasks || [];
-  const perf = loadPerformanceStore(siteId);
-  const jobsExecuted = tasks.filter((t) => Boolean(t.jobId)).length;
+  const cached = getOutcome(siteId, missionId);
+  if (cached?.report) return cached;
+  const report = buildMissionOutcomeReport(siteId, missionId);
+  return legacyFromReport(siteId, missionId, report);
+}
 
-  const outcome: MissionOutcome = {
+function legacyFromReport(
+  siteId: string,
+  missionId: string,
+  report: MissionOutcomeReport
+): MissionOutcome {
+  const mission = getMission(siteId, missionId)!;
+  return {
     missionId,
     siteId,
-    completedTasks: tasks.filter((t) => t.status === 'COMPLETED').length,
-    failedTasks: tasks.filter((t) => t.status === 'FAILED').length,
-    blockedTasks: tasks.filter((t) => t.status === 'BLOCKED').length,
-    reviewTasks: tasks.filter((t) => t.status === 'WAITING_FOR_REVIEW').length,
-    decisionsEvaluated: tasks.filter((t) => Boolean(t.decisionId)).length,
-    jobsExecuted,
+    completedTasks: report.execution.completedTasks,
+    failedTasks: report.execution.failedTasks,
+    blockedTasks: report.execution.blockedTasks,
+    reviewTasks: report.execution.reviewTasks,
+    decisionsEvaluated: report.execution.decisionsEvaluated,
+    jobsExecuted: report.execution.jobsExecuted,
     startedAt: mission.startedAt,
     completedAt: mission.completedAt,
-    performance:
-      perf.records.length === 0
-        ? 'INSUFFICIENT_DATA'
-        : { beforeRecords: perf.records.length, afterRecords: perf.records.length }
+    performance: report.classification === 'INSUFFICIENT_DATA' ? 'INSUFFICIENT_DATA' : undefined,
+    classification: report.classification,
+    baselineMeasurementId: mission.baselineMeasurementId,
+    outcomeMeasurementId: mission.outcomeMeasurementId,
+    nextState: report.nextState,
+    report
   };
-  saveOutcome(siteId, outcome);
-  return outcome;
 }
 
 export function getMissionOutcome(siteId: string, missionId: string): MissionOutcome | undefined {
   return getOutcome(siteId, missionId) || undefined;
+}
+
+/** Read-only report. Prefer cached persisted report when present. */
+export function getMissionOutcomeReport(siteId: string, missionId: string): MissionOutcomeReport {
+  const mission = getMission(siteId, missionId);
+  if (!mission || mission.siteId !== siteId) throw new Error('Mission not found');
+  const cached = getOutcome(siteId, missionId);
+  if (cached?.report) return cached.report;
+  return buildMissionOutcomeReport(siteId, missionId);
+}
+
+export function getMissionBaseline(siteId: string, missionId: string) {
+  const mission = getMission(siteId, missionId);
+  if (!mission?.baselineMeasurementId) return null;
+  return getMeasurement(siteId, mission.baselineMeasurementId) || null;
 }

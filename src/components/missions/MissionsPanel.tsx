@@ -86,6 +86,7 @@ export default function MissionsPanel({
                 }
                 order={m.order}
                 evaluation={m.evaluation}
+                report={m.report}
                 diff={m.diff}
                 nextTask={m.next.task}
                 nextReason={m.next.reason}

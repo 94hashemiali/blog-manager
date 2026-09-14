@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { db } from '../db.js';
 import { emitDomainEvent } from '../jobs/events.js';
-import { captureMissionOutcome, evaluateMission } from './evaluator.js';
+import { captureMissionOutcome, evaluateMission, getMissionOutcomeReport } from './evaluator.js';
 import {
   approveMissionTask,
   cancelMission,
@@ -69,7 +69,8 @@ function toListItem(siteId: string, mission: ReturnType<typeof listMissions>[num
     failedTasks,
     nextTaskTitle,
     nextReason,
-    taskCount: tasks.length
+    taskCount: tasks.length,
+    outcomeClassification: mission.outcomeClassification
   };
 }
 
@@ -221,9 +222,21 @@ missionRouter.get('/:siteId/:missionId/evaluation', (req, res) => {
   try {
     const evaluation = evaluateMission(siteId, missionId);
     const outcome = captureMissionOutcome(siteId, missionId);
-    res.json({ success: true, evaluation, outcome });
+    const report = getMissionOutcomeReport(siteId, missionId);
+    res.json({ success: true, evaluation, outcome, report });
   } catch (err: any) {
     return fail(res, 400, 'eval_failed', err?.message || 'Evaluation failed');
+  }
+});
+
+missionRouter.get('/:siteId/:missionId/outcome', (req, res) => {
+  const { siteId, missionId } = req.params;
+  if (!db.getSiteById(siteId)) return fail(res, 404, 'site_not_found', 'سایت یافت نشد.');
+  try {
+    const report = getMissionOutcomeReport(siteId, missionId);
+    res.json({ success: true, report });
+  } catch (err: any) {
+    return fail(res, 400, 'outcome_failed', err?.message || 'Outcome failed');
   }
 });
 

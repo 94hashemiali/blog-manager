@@ -79,9 +79,11 @@ export default function MissionList({ missions, selectedId, onSelect, loading }:
             <p className="mt-1.5 text-[10px] text-stone-500">
               {m.nextTaskTitle
                 ? `بعدی: ${m.nextTaskTitle}`
-                : m.nextReason
-                  ? `وضعیت: ${m.nextReason}`
-                  : 'بدون next task'}
+                : m.outcomeClassification
+                  ? `Outcome: ${m.outcomeClassification}`
+                  : m.nextReason
+                    ? `وضعیت: ${m.nextReason}`
+                    : 'بدون next task'}
             </p>
             <p className="mt-0.5 text-[10px] text-stone-400">{fmtTime(m.updatedAt)}</p>
           </button>

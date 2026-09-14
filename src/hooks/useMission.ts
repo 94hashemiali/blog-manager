@@ -20,6 +20,8 @@ import {
   type MissionEvaluation,
   type MissionGoal,
   type MissionListItem,
+  type MissionOutcome,
+  type MissionOutcomeReport,
   type MissionPlan,
   type MissionTask,
   type NextTaskResult,
@@ -35,9 +37,8 @@ export function useMission(siteId?: string, enabled = true) {
   const [edges, setEdges] = useState<MissionPlan['edges']>([]);
   const [order, setOrder] = useState<string[]>([]);
   const [evaluation, setEvaluation] = useState<MissionEvaluation | null>(null);
-  const [outcome, setOutcome] = useState<Awaited<
-    ReturnType<typeof getMissionEvaluation>
-  >['outcome'] | null>(null);
+  const [outcome, setOutcome] = useState<MissionOutcome | null>(null);
+  const [report, setReport] = useState<MissionOutcomeReport | null>(null);
   const [diff, setDiff] = useState<PlanDiff | null>(null);
   const [next, setNext] = useState<NextTaskResult>({ task: null });
   const [error, setError] = useState<string | null>(null);
@@ -73,6 +74,7 @@ export function useMission(siteId?: string, enabled = true) {
       setOrder(tasksData.order || []);
       setEvaluation(evalData?.evaluation || null);
       setOutcome(evalData?.outcome || null);
+      setReport(evalData?.report || evalData?.outcome?.report || null);
       setDiff(diffData?.diff || null);
       setNext({ task: nextData.task ?? null, reason: nextData.reason, detail: nextData.detail });
     },
@@ -204,6 +206,7 @@ export function useMission(siteId?: string, enabled = true) {
     order,
     evaluation,
     outcome,
+    report,
     diff,
     next,
     error,

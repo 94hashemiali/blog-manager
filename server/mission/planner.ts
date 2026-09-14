@@ -353,6 +353,7 @@ export function planMission(siteId: string, missionId: string): {
   const mission = getMission(siteId, missionId);
   if (!mission || mission.siteId !== siteId) throw new Error('Mission not found');
 
+  const previousStatus = mission.status;
   const planning: Mission = {
     ...mission,
     status: 'PLANNING',
@@ -360,7 +361,19 @@ export function planMission(siteId: string, missionId: string): {
   };
   upsertMission(siteId, planning);
 
-  return replanMission(siteId, missionId, 'Initial plan generation');
+  try {
+    return replanMission(siteId, missionId, 'Initial plan generation');
+  } catch (err) {
+    const current = getMission(siteId, missionId);
+    if (current?.status === 'PLANNING') {
+      upsertMission(siteId, {
+        ...current,
+        status: previousStatus,
+        updatedAt: new Date().toISOString()
+      });
+    }
+    throw err;
+  }
 }
 
 export { taskLogicalKey };

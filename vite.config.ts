@@ -16,7 +16,14 @@ export default defineConfig(() => {
       // Do not modifyâfile watching is disabled to prevent flickering during agent edits.
       hmr: process.env.DISABLE_HMR !== 'true',
       // Disable file watching when DISABLE_HMR is true to save CPU during agent edits.
-      watch: process.env.DISABLE_HMR === 'true' ? null : {},
+      // Never watch runtime JSON under data/ — API polls write those files and would
+      // otherwise trigger full page reloads in a tight loop.
+      watch:
+        process.env.DISABLE_HMR === 'true'
+          ? null
+          : {
+              ignored: ['**/data/**', '**/dist/**', '**/.git/**']
+            },
     },
   };
 });

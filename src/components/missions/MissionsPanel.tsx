@@ -81,7 +81,11 @@ export default function MissionsPanel({
                 mission={m.mission}
                 plan={
                   m.plan
-                    ? { ...m.plan, tasks: m.tasks.length ? m.tasks : m.plan.tasks, edges: m.edges }
+                    ? {
+                        ...m.plan,
+                        tasks: m.tasks.length ? m.tasks : m.plan.tasks,
+                        edges: m.edges.length ? m.edges : m.plan.edges
+                      }
                     : m.plan
                 }
                 order={m.order}

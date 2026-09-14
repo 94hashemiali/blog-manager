@@ -1762,7 +1762,13 @@ app.post('/api/ai/visual-assets/:id/feedback', async (req, res) => {
 async function startServer() {
   if (process.env.NODE_ENV !== 'production') {
     const vite = await createViteServer({
-      server: { middlewareMode: true },
+      server: {
+        middlewareMode: true,
+        watch: {
+          // Runtime persistence lives here; watching it reloads the SPA on every poll.
+          ignored: ['**/data/**', '**/dist/**', '**/.git/**']
+        }
+      },
       appType: 'spa',
     });
     app.use(vite.middlewares);

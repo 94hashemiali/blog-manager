@@ -74,30 +74,38 @@ export default function OpsOverview({
     loading: decisionLoading
   } = useDecision(activeSite.id, true);
 
-  const refresh = useCallback(async () => {
-    setLoading(true);
-    setError(null);
+  const refresh = useCallback(async (opts?: { soft?: boolean; sync?: boolean }) => {
+    const soft = opts?.soft === true;
+    const shouldSync = opts?.sync !== false;
+    if (!soft) {
+      setLoading(true);
+      setError(null);
+    }
     try {
-      // Explicit materialize (GET overview is read-only).
-      await syncRecommendations(activeSite.id).catch(() => undefined);
+      // Materialize only when asked — polling must stay read-only or Vite
+      // (and the UI) thrash on every data/*.json write.
+      if (shouldSync) {
+        await syncRecommendations(activeSite.id).catch(() => undefined);
+      }
       const res = await getOperationsSnapshot(activeSite.id);
       setSnapshot(res.snapshot);
       await refreshDecisions();
+      setError(null);
     } catch (err: any) {
-      setError(err.message || 'بارگذاری عملیات ناموفق بود.');
+      if (!soft) setError(err.message || 'بارگذاری عملیات ناموفق بود.');
     } finally {
-      setLoading(false);
+      if (!soft) setLoading(false);
     }
   }, [activeSite.id, refreshDecisions]);
 
   useEffect(() => {
-    refresh();
+    void refresh({ sync: true });
     const id = setInterval(() => {
       if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
-      refresh();
+      void refresh({ soft: true, sync: false });
     }, 12000);
     const onVis = () => {
-      if (document.visibilityState === 'visible') refresh();
+      if (document.visibilityState === 'visible') void refresh({ soft: true, sync: false });
     };
     document.addEventListener('visibilitychange', onVis);
     return () => {
@@ -165,7 +173,7 @@ export default function OpsOverview({
             </button>
             <button
               type="button"
-              onClick={refresh}
+              onClick={() => void refresh({ sync: true })}
               className="inline-flex items-center gap-1.5 rounded-xl border border-stone-200 bg-white px-3 py-2 text-xs font-black text-stone-700"
             >
               <RefreshCw className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} />

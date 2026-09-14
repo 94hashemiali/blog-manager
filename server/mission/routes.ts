@@ -197,23 +197,33 @@ missionRouter.post('/:siteId/:missionId/replan', (req, res) => {
 missionRouter.get('/:siteId/:missionId/tasks', (req, res) => {
   const { siteId, missionId } = req.params;
   if (!db.getSiteById(siteId)) return fail(res, 404, 'site_not_found', 'سایت یافت نشد.');
-  const mission = getMission(siteId, missionId);
-  if (!mission) return fail(res, 404, 'not_found', 'Mission not found');
-  syncMissionTaskJobs(siteId, missionId);
-  const plan = getActivePlan(siteId, mission);
-  res.json({
-    success: true,
-    tasks: plan?.tasks || [],
-    edges: plan?.edges || [],
-    order: plan ? getExecutionOrder(plan).map((t) => t.id) : []
-  });
+  try {
+    const mission = getMission(siteId, missionId);
+    if (!mission) return fail(res, 404, 'not_found', 'Mission not found');
+    syncMissionTaskJobs(siteId, missionId);
+    const plan = getActivePlan(siteId, mission);
+    res.json({
+      success: true,
+      tasks: plan?.tasks || [],
+      edges: plan?.edges || [],
+      order: plan ? getExecutionOrder(plan).map((t) => t.id) : []
+    });
+  } catch (err: any) {
+    return fail(res, 400, 'tasks_failed', err?.message || 'Tasks failed');
+  }
 });
 
 missionRouter.get('/:siteId/:missionId/next-task', (req, res) => {
   const { siteId, missionId } = req.params;
   if (!db.getSiteById(siteId)) return fail(res, 404, 'site_not_found', 'سایت یافت نشد.');
-  syncMissionTaskJobs(siteId, missionId);
-  res.json({ success: true, ...getNextExecutableTask(siteId, missionId) });
+  try {
+    const mission = getMission(siteId, missionId);
+    if (!mission) return fail(res, 404, 'not_found', 'Mission not found');
+    syncMissionTaskJobs(siteId, missionId);
+    res.json({ success: true, ...getNextExecutableTask(siteId, missionId) });
+  } catch (err: any) {
+    return fail(res, 400, 'next_task_failed', err?.message || 'Next task failed');
+  }
 });
 
 missionRouter.get('/:siteId/:missionId/evaluation', (req, res) => {

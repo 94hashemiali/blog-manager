@@ -39,6 +39,21 @@ interface Props {
   onOpenDecision?: (decisionId: string) => void;
 }
 
+function canAdvance(props: Props): boolean {
+  if (!props.onAdvance || !props.nextTask) return false;
+  const blockedReasons: NextTaskReason[] = [
+    'BLOCKED',
+    'NO_ACTIONABLE_TASK',
+    'MISSION_COMPLETED',
+    'MISSION_PAUSED',
+    'MISSION_NOT_RUNNING',
+    'WAITING_FOR_DEPENDENCY',
+    'CONCURRENCY_LIMIT'
+  ];
+  if (props.nextReason && blockedReasons.includes(props.nextReason)) return false;
+  return true;
+}
+
 function primaryActions(status: Mission['status'], props: Props) {
   const out: Array<{ label: string; fn?: () => void; tone?: string }> = [];
   if (status === 'DRAFT' || status === 'PLANNING') {
@@ -48,7 +63,9 @@ function primaryActions(status: Mission['status'], props: Props) {
     out.push({ label: 'Start', fn: props.onStart, tone: 'emerald' });
   }
   if (status === 'RUNNING' || status === 'WAITING_FOR_REVIEW') {
-    out.push({ label: 'اجرای بعدی', fn: props.onAdvance, tone: 'emerald' });
+    if (canAdvance(props)) {
+      out.push({ label: 'اجرای بعدی', fn: props.onAdvance, tone: 'emerald' });
+    }
     out.push({ label: 'Pause', fn: props.onPause });
   }
   if (status === 'PAUSED') {
@@ -88,6 +105,8 @@ export default function MissionDetail({
 }: Props) {
   const actions = primaryActions(mission.status, {
     mission,
+    nextTask,
+    nextReason,
     onPlan,
     onStart,
     onResume,

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   advanceMission,
   approveMissionTask,
@@ -44,6 +44,8 @@ export function useMission(siteId?: string, enabled = true) {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState(false);
+  const siteIdRef = useRef(siteId);
+  siteIdRef.current = siteId;
 
   const refreshList = useCallback(async () => {
     if (!siteId) return;
@@ -54,24 +56,23 @@ export function useMission(siteId?: string, enabled = true) {
   const refreshDetail = useCallback(
     async (missionId: string) => {
       if (!siteId) return;
+      const requestSiteId = siteId;
       const [m, tasksData, evalData, diffData, nextData] = await Promise.all([
         getMission(siteId, missionId),
-        getMissionTasks(siteId, missionId).catch(() => ({
-          tasks: [] as MissionTask[],
-          edges: [] as MissionPlan['edges'],
-          order: [] as string[]
-        })),
+        getMissionTasks(siteId, missionId).catch(() => null),
         getMissionEvaluation(siteId, missionId).catch(() => null),
         getMissionDiff(siteId, missionId).catch(() => ({ diff: null })),
         getNextMissionTask(siteId, missionId).catch(
           (): NextTaskResult => ({ task: null })
         )
       ]);
+      // Drop stale responses after a site switch mid-flight.
+      if (siteIdRef.current !== requestSiteId) return;
       setMission(m.mission);
       setPlan(m.plan);
-      setTasks(tasksData.tasks || m.plan?.tasks || []);
-      setEdges(tasksData.edges || m.plan?.edges || []);
-      setOrder(tasksData.order || []);
+      setTasks(tasksData?.tasks ?? m.plan?.tasks ?? []);
+      setEdges(tasksData?.edges ?? m.plan?.edges ?? []);
+      setOrder(tasksData?.order ?? []);
       setEvaluation(evalData?.evaluation || null);
       setOutcome(evalData?.outcome || null);
       setReport(evalData?.report || evalData?.outcome?.report || null);
@@ -100,7 +101,11 @@ export function useMission(siteId?: string, enabled = true) {
     setMission(null);
     setPlan(null);
     setTasks([]);
+    setEdges([]);
+    setOrder([]);
     setEvaluation(null);
+    setOutcome(null);
+    setReport(null);
     setDiff(null);
     setNext({ task: null });
     setError(null);
@@ -114,7 +119,28 @@ export function useMission(siteId?: string, enabled = true) {
       if (cancelled) return;
       try {
         await refreshList();
-        if (selectedId) await refreshDetail(selectedId);
+        if (cancelled) return;
+        if (selectedId) {
+          try {
+            await refreshDetail(selectedId);
+          } catch (err: unknown) {
+            if (cancelled || siteIdRef.current !== siteId) return;
+            const msg = err instanceof Error ? err.message : String(err);
+            if (/not found/i.test(msg)) {
+              setSelectedId(null);
+              setMission(null);
+              setPlan(null);
+              setTasks([]);
+              setEdges([]);
+              setOrder([]);
+              setNext({ task: null });
+              setError(msg);
+              return;
+            }
+            setError(msg);
+            return;
+          }
+        }
         if (!cancelled) setError(null);
       } catch (err: unknown) {
         if (!cancelled) setError(err instanceof Error ? err.message : String(err));
@@ -137,15 +163,25 @@ export function useMission(siteId?: string, enabled = true) {
     async (fn: () => Promise<string | void>) => {
       setBusy(true);
       setError(null);
+      let focusId: string | void | undefined;
+      let actionOk = false;
       try {
-        const focusId = await fn();
-        await refreshList();
-        const id = focusId || selectedId;
-        if (id) await refreshDetail(id);
+        focusId = await fn();
+        actionOk = true;
       } catch (err: unknown) {
         setError(err instanceof Error ? err.message : String(err));
         throw err;
       } finally {
+        try {
+          await refreshList();
+          const id = focusId || selectedId;
+          if (id) await refreshDetail(id);
+          if (actionOk) setError(null);
+        } catch (err: unknown) {
+          if (actionOk) {
+            setError(err instanceof Error ? err.message : String(err));
+          }
+        }
         setBusy(false);
       }
     },
